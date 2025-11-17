@@ -2,6 +2,10 @@
 
 <div align="center">
 
+![ATRI应用截图](ATRI-APP.jpg)
+
+</div>
+
 **具有革命性混合记忆检索的 AI 情感陪伴系统**
 
 现代化的 Android 客户端 + Cloudflare Worker 边缘计算后端
@@ -99,18 +103,7 @@ Android客户端 ──────── Cloudflare Workers (边缘计算)
 | **向量数据库** | Cloudflare Vectorize | **多层记忆架构** | 日记向量化、语义检索、记忆关联 |
 | **结构化存储** | Cloudflare D1 | 对话日志 + 日记管理 | 历史对话、日记条目、用户数据 |
 | **文件存储** | Cloudflare R2 | 多媒体处理 | 图片、文档、附件存储 |
-| **AI 服务** | GPT-5 + BGE-M3 | **情感化对话 + 智能日记** | 自然语言生成、语义嵌入 |
-
-### 应用图标设计
-
-当前应用图标采用ATRI的可爱照片设计：
-
-<div align="center">
-
-![ATRI应用截图](ATRI-APP.jpg)
-
-</div>
-
+| **AI 服务** | AI大模型 + 向量模型 | **情感化对话 + 智能日记** | 自然语言生成、语义嵌入 |
 
 
 ## 快速部署
