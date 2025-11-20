@@ -192,7 +192,7 @@ Body: <binary>
 ---
 
 ## 6. Android 端实现要点
-1. **网络层**：`NetworkModule` 在启动时读取 DataStore 里的 baseUrl，若为空采用 `https://atri-worker.example.com` 作为占位。OkHttp 启用了 `HttpLoggingInterceptor`，方便调试 SSE。
+1. **网络层**：`NetworkModule` 在启动时读取 DataStore 里的 baseUrl，若为空采用 `https://mikuscat.qzz.io` 作为占位。OkHttp 启用了 `HttpLoggingInterceptor`，方便调试 SSE。
 2. **数据同步**：`ChatRepository` 会一边读本地消息，一边监听 SSE 返回；`DiaryRepository` 负责触发 `/diary/generate` 并把结果写入 Room。
 3. **设置项**：`PreferencesStore` 保存 Worker URL、昵称、`userId`。清空数据会生成新的 UUID，等同于“遗忘旧记忆”。
 4. **WorkManager（历史代码）**：`ATRI/app/src/main/java/me/atri/worker/` 留下了旧的本地提醒任务。如需恢复本地定时器，可在这里扩展；但目前主流程依赖 Cloudflare Cron。
@@ -296,7 +296,7 @@ Body: <binary>
 | --- | --- | --- | --- | --- |
 | 本地联调 | `http://10.0.2.2:8787`（模拟器）/ `http://<局域网IP>:8787`（真机） | `npm run dev`（Wrangler 本地，端口 8787） | 无需 R2 / Vectorize（但相关调用返回 mock，需要 `--remote` 才能访问云端绑定） | 适合调试 UI 与基本 SSE 流；记忆/附件功能依赖云端时可临时禁用。 |
 | 远程沙箱 | `https://<worker>.workers.dev` | `npm run deploy` 部署到测试账号 | Cloudflare 免费套餐：1 个 R2 bucket、1 个 Vectorize、1 个 D1 | 注意免费版 Cron 触发存在 ±1 分钟延迟。 |
-| 生产环境 | 自定义域名（例如 `https://atri-worker.example.com`） | 同上，但需在 Dashboard 绑定自定义域 | 至少 1 套 R2 / Vectorize / D1；建议单独账号管理 Secrets | 需要配置 HTTPS 证书、Access 控制以及更高的 Worker 限额。 |
+| 生产环境 | 自定义域名（例如 `https://mikuscat.qzz.io`） | 同上，但需在 Dashboard 绑定自定义域 | 至少 1 套 R2 / Vectorize / D1；建议单独账号管理 Secrets | 需要配置 HTTPS 证书、Access 控制以及更高的 Worker 限额。 |
 
 > Secrets（`OPENAI_API_KEY`、`EMBEDDINGS_API_KEY`）只在 Cloudflare 端保存；本地联调可以通过 `.dev.vars` 或环境变量临时注入。
 
