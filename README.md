@@ -133,7 +133,7 @@ Worker 所有路由都依赖共享提示词（`src/config/prompts.json`）和封
 - `services/memory-service.ts`：调用 SiliconFlow embeddings，写入 / 查询 Vectorize。
 - `utils/sanitize.ts`：统一清洗输入，避免脏字符或 ID 过长。
 
-`wrangler.toml` 内定义了 Vectorize/R2 绑定、开放 API URL、embedding 模型等。部署时需要在 Cloudflare Dashboard 配置自定义域名（示例：`mikuscat.qzz.io`）。
+`wrangler.toml` 内定义了 Vectorize/R2 绑定、开放 API URL、embedding 模型等。部署时可以在 Cloudflare Dashboard 配置自定义域名。
 
 | 组件 | 技术栈 | 核心创新 | 主要职责 |
 |------|--------|----------|----------|
@@ -168,7 +168,7 @@ npx wrangler secret put OPENAI_API_KEY
 npx wrangler secret put EMBEDDINGS_API_KEY
 npm run deploy
 ```
-部署成功后记下 Worker URL（示例 `https://atri-worker.<subdomain>.workers.dev`），或在 Dashboard 为其绑定自定义域名。
+部署成功后记下 Worker URL（示例 `https://atri-worker.<your-subdomain>.workers.dev`），或在 Dashboard 为其绑定自定义域名。
 
 ### 7.2 构建 Android 客户端
 ```bash

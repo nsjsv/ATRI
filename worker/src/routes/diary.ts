@@ -11,8 +11,8 @@ import {
 import { generateDiaryFromConversation } from '../services/diary-generator';
 import { upsertDiaryMemory } from '../services/memory-service';
 
-export function registerDiaryRoutes(router: Router) {
-  router.get('/diary', async (request, env: Env) => {
+export function registerDiaryRoutes(router: any) {
+  router.get('/diary', async (request: any, env: Env) => {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId') || '';
     const date = searchParams.get('date') || '';
@@ -27,7 +27,7 @@ export function registerDiaryRoutes(router: Router) {
     return jsonResponse({ status: entry.status, entry });
   });
 
-  router.get('/diary/list', async (request, env: Env) => {
+  router.get('/diary/list', async (request: any, env: Env) => {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId') || '';
     const limit = Number(searchParams.get('limit') || '7');
@@ -38,7 +38,7 @@ export function registerDiaryRoutes(router: Router) {
     return jsonResponse({ entries });
   });
 
-  router.post('/diary/generate', async (request, env: Env) => {
+  router.post('/diary/generate', async (request: any, env: Env) => {
     try {
       const body = await request.json();
       const userId: string | undefined = body.userId;
@@ -68,7 +68,7 @@ export function registerDiaryRoutes(router: Router) {
       if (userId && date && body.persist !== false) {
         const summaryText = diary.highlights.length
           ? diary.highlights.join('；')
-          : diary.content.slice(0, 80);
+          : (diary.content.split('\n')[0].slice(0, 150) || diary.content.slice(0, 150));
         const savedEntry = await saveDiaryEntry(env, {
           userId,
           date,
@@ -100,13 +100,15 @@ export function registerDiaryRoutes(router: Router) {
     }
   });
 
-  router.post('/diary/index', async (request, env: Env) => {
+  router.post('/diary/index', async (request: any, env: Env) => {
     try {
       const { userId, date, content, mood } = await request.json();
       if (!userId || !date || !content) {
         return jsonResponse({ error: 'missing_params' }, 400);
       }
-      const summaryText = mood ? `${mood}：${content.slice(0, 40)}` : content.slice(0, 80);
+      const summaryText = mood
+        ? `${mood}：${content.split('\n')[0].slice(0, 100)}`
+        : (content.split('\n')[0].slice(0, 150) || content.slice(0, 150));
       const savedEntry = await saveDiaryEntry(env, {
         userId,
         date,

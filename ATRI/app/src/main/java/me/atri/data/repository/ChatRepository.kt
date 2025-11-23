@@ -25,6 +25,7 @@ import me.atri.data.model.AttachmentContract
 import me.atri.data.model.AttachmentType
 import me.atri.data.model.PendingAttachment
 import kotlin.text.RegexOption
+import kotlinx.coroutines.CancellationException
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody
 import okio.buffer
@@ -35,6 +36,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import me.atri.data.model.LastConversationInfo
+import me.atri.utils.EmojiAssets
 
 class ChatRepository(
     private val messageDao: MessageDao,
@@ -56,6 +58,7 @@ class ChatRepository(
             pattern = "^\\[[^]]+\\]\\s*",
             options = setOf(RegexOption.MULTILINE)
         )
+        private val EMOJI_PATTERN = Regex("\\[\\[EMOJI:([^\\]]+)]]")
     }
 
     fun observeMessages(): Flow<List<MessageEntity>> = messageDao.observeAll()
@@ -67,6 +70,7 @@ class ChatRepository(
         content: String,
         attachments: List<PendingAttachment>,
         reusedAttachments: List<Attachment> = emptyList(),
+        onUserMessagePrepared: (MessageEntity) -> Unit = {},
         onStreamResponse: suspend (String, String?, Long?, Long?) -> Unit
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -84,6 +88,7 @@ class ChatRepository(
                 timestamp = System.currentTimeMillis(),
                 attachments = finalUserAttachments
             )
+            onUserMessagePrepared(userMessage)
             messageDao.insert(userMessage)
             markConversationTouched(userMessage.timestamp)
             logConversationSafely(
@@ -107,6 +112,8 @@ class ChatRepository(
 
             executeChatRequest(request, onStreamResponse)
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -142,7 +149,15 @@ class ChatRepository(
     }
 
     suspend fun persistAtriMessage(finalMessage: MessageEntity) = withContext(Dispatchers.IO) {
-        val sanitized = finalMessage.copy(content = cleanTimestampPrefix(finalMessage.content))
+        val cleanedContent = cleanTimestampPrefix(finalMessage.content)
+        val (contentWithoutEmoji, attachmentsWithEmoji) = extractEmojiAttachmentsFromContent(
+            originalContent = cleanedContent,
+            existingAttachments = finalMessage.attachments
+        )
+        val sanitized = finalMessage.copy(
+            content = contentWithoutEmoji,
+            attachments = attachmentsWithEmoji
+        )
         val existing = messageDao.getMessageById(sanitized.id)
 
         val persisted = if (existing == null) {
@@ -171,6 +186,29 @@ class ChatRepository(
             timestamp = persisted.timestamp,
             attachments = persisted.attachments
         )
+    }
+
+    private fun extractEmojiAttachmentsFromContent(
+        originalContent: String,
+        existingAttachments: List<Attachment>
+    ): Pair<String, List<Attachment>> {
+        val emojiAttachments = mutableListOf<Attachment>()
+        val existingKeys = existingAttachments.associateBy { "${it.type}:${it.url}" }.toMutableMap()
+
+        for (match in EMOJI_PATTERN.findAll(originalContent)) {
+            val name = match.groupValues.getOrNull(1)?.trim().orEmpty()
+            if (name.isEmpty()) continue
+            val attachment = EmojiAssets.createEmojiAttachmentOrNull(name) ?: continue
+            val key = "${attachment.type}:${attachment.url}"
+            if (!existingKeys.containsKey(key)) {
+                existingKeys[key] = attachment
+                emojiAttachments.add(attachment)
+            }
+        }
+
+        val cleanText = EMOJI_PATTERN.replace(originalContent, "").trim()
+        val mergedAttachments = mergeAttachmentLists(existingAttachments, emojiAttachments)
+        return cleanText to mergedAttachments
     }
     suspend fun editMessage(
         id: String,

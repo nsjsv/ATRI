@@ -47,6 +47,7 @@ import me.atri.data.api.response.DiaryEntryDto
 import org.koin.androidx.compose.koinViewModel
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @Composable
 fun DiaryScreen(
@@ -142,10 +143,10 @@ private fun DiaryCard(
     onClick: () -> Unit
 ) {
     val background = MaterialTheme.colorScheme.surface
-    val (dayText, monthText, weekdayText) = buildDiaryPreviewDate(entry.date)
+    val dateLabel = buildDiaryPreviewLabel(entry.date)
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         color = background,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
@@ -166,31 +167,25 @@ private fun DiaryCard(
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                                MaterialTheme.colorScheme.secondary.copy(alpha = 0.65f)
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.28f),
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
                             )
                         )
                     )
             )
             Column(
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = dayText,
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
+                    text = dateLabel,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = monthText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = weekdayText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    text = "点开看看这一天的记录",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
@@ -252,11 +247,18 @@ private fun DiaryDetailDialog(
                         Icon(Icons.Outlined.Close, contentDescription = "关闭")
                     }
                 }
-                Text(
-                    text = entry.content?.ifBlank { "这一天还没有生成日记。" } ?: "这一天还没有生成日记。",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                ) {
+                    Text(
+                        text = entry.content?.ifBlank { "这一天还没有生成日记。" } ?: "这一天还没有生成日记。",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
             }
         }
@@ -267,19 +269,12 @@ private fun DiaryDetailDialog(
 private fun buildDateLabel(date: String): String {
     return runCatching {
         val parsed = LocalDate.parse(date)
-        parsed.format(DateTimeFormatter.ofPattern("yyyy 年 M 月 d 日"))
+        val weekday = parsed.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.CHINA)
+        parsed.format(DateTimeFormatter.ofPattern("yyyy 年 M 月 d 日")) + " · " + weekday
     }.getOrElse { date }
 }
 
 @Composable
-private fun buildDiaryPreviewDate(date: String): Triple<String, String, String> {
-    return runCatching {
-        val parsed = LocalDate.parse(date)
-        val day = parsed.dayOfMonth.toString().padStart(2, '0')
-        val month = "${parsed.year} 年 ${parsed.monthValue} 月"
-        val weekday = parsed.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.CHINA)
-        Triple(day, month, weekday)
-    }.getOrElse {
-        Triple(date, "", "")
-    }
+private fun buildDiaryPreviewLabel(date: String): String {
+    return buildDateLabel(date)
 }

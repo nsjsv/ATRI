@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material3.Icon
@@ -62,18 +65,51 @@ fun ChatTopBar(
                             style = MaterialTheme.typography.titleMedium
                         )
                         Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = status.text,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
-                        )
+                        StatusPill(status = status)
                     }
                     IconButton(onClick = onOpenDiary) {
                         DiaryIcon()
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun StatusPill(status: AtriStatus) {
+    val colorScheme = MaterialTheme.colorScheme
+    val indicatorColor = when (status) {
+        AtriStatus.Online -> colorScheme.primary
+        AtriStatus.Waiting -> colorScheme.secondary
+        AtriStatus.Missing -> colorScheme.tertiary
+        AtriStatus.Thinking -> colorScheme.primary
+        AtriStatus.Sleeping -> colorScheme.outline
+    }
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = colorScheme.surfaceVariant.copy(alpha = 0.7f),
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .height(8.dp)
+                    .width(8.dp),
+                shape = CircleShape,
+                color = indicatorColor,
+                tonalElevation = 0.dp
+            ) {}
+            Text(
+                text = status.text,
+                style = MaterialTheme.typography.labelMedium,
+                color = colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
         }
     }
 }

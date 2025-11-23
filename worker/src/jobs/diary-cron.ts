@@ -35,7 +35,7 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
       });
       const summaryText = diary.highlights.length
         ? diary.highlights.join('；')
-        : diary.content.slice(0, 80);
+        : (diary.content.split('\n')[0].slice(0, 150) || diary.content.slice(0, 150));
       const savedEntry = await saveDiaryEntry(env, {
         userId: user.userId,
         date,

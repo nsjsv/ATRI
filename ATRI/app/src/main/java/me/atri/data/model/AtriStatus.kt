@@ -1,11 +1,11 @@
 package me.atri.data.model
 
 sealed class AtriStatus(val text: String) {
-    object Online : AtriStatus("在线 · 心情不错")
-    object Waiting : AtriStatus("在线 · 在等你说话")
-    object Missing : AtriStatus("在线 · 有点想你了")
-    object Thinking : AtriStatus("在线 · 正在思考...")
-    object Sleeping : AtriStatus("离线 · 去睡觉了")
+    object Online : AtriStatus("在线 | 正打起精神")
+    object Waiting : AtriStatus("在线 | 等你开口")
+    object Missing : AtriStatus("在线 | 有点想你了")
+    object Thinking : AtriStatus("在线 | 正在思考...")
+    object Sleeping : AtriStatus("小憩中 | 我先眯会儿")
 
     companion object {
         fun calculate(

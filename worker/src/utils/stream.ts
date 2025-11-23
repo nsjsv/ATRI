@@ -1,3 +1,32 @@
+function toPlainText(delta: unknown): string {
+  if (delta == null) return '';
+  if (typeof delta === 'string') return delta;
+  if (typeof delta === 'number' || typeof delta === 'boolean') {
+    return String(delta);
+  }
+  if (Array.isArray(delta)) {
+    return delta.map(item => toPlainText(item)).join('');
+  }
+  if (typeof delta === 'object') {
+    const obj = delta as Record<string, unknown>;
+    const type = typeof obj.type === 'string' ? obj.type : undefined;
+    // 仅保留真正的文本/输出块，忽略 artifact、tool_call 等非文本类型
+    if (type) {
+      if (type === 'text') return toPlainText(obj.text ?? obj.content ?? '');
+      if (type === 'output_text') return toPlainText(obj.output_text ?? obj.text ?? obj.content ?? '');
+      if (type === 'reasoning') return toPlainText(obj.reasoning ?? obj.text ?? obj.content ?? '');
+      // 其他类型（artifact、tool_call 等）直接丢弃，避免渣字串
+      return '';
+    }
+    if (obj.text != null) return toPlainText(obj.text);
+    if (obj.content != null) return toPlainText(obj.content);
+    if (obj.value != null) return toPlainText(obj.value);
+    if (obj.output_text != null) return toPlainText(obj.output_text);
+    return Object.values(obj).map(value => toPlainText(value)).join('');
+  }
+  return '';
+}
+
 export function pipeChatStream(response: Response): Response {
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
@@ -33,8 +62,8 @@ export function pipeChatStream(response: Response): Response {
           try {
             const parsed = JSON.parse(data);
             const delta = parsed.choices?.[0]?.delta || {};
-            const contentDelta = delta.content || '';
-            const reasoningDelta = delta.reasoning_content || '';
+            const contentDelta = toPlainText(delta.content);
+            const reasoningDelta = toPlainText(delta.reasoning_content);
 
             if (reasoningDelta) {
               await writer.write(

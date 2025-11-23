@@ -31,9 +31,9 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
     val userBirthday: Flow<String> = dataStore.data.map { it[USER_BIRTHDAY] ?: "" }
     val intimacyPoints: Flow<Int> = dataStore.data.map { it[INTIMACY_POINTS] ?: 0 }
     val isFirstLaunch: Flow<Boolean> = dataStore.data.map { it[IS_FIRST_LAUNCH] ?: true }
-    val apiUrl: Flow<String> = dataStore.data.map { it[API_URL] ?: "https://api.example.com/" }
+    val apiUrl: Flow<String> = dataStore.data.map { it[API_URL] ?: "https://your-worker.workers.dev" }
     val apiKey: Flow<String> = dataStore.data.map { it[API_KEY] ?: "" }
-    val modelName: Flow<String> = dataStore.data.map { it[MODEL_NAME] ?: "gpt-4o-mini" }
+    val modelName: Flow<String> = dataStore.data.map { it[MODEL_NAME] ?: "gpt-4" }
     val atriAvatarPath: Flow<String> = dataStore.data.map { it[ATRI_AVATAR_PATH] ?: "" }
     val lastConversationDate: Flow<String> = dataStore.data.map { it[LAST_CHAT_DATE] ?: "" }
 

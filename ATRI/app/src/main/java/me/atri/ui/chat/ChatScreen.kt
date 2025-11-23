@@ -30,16 +30,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Divider
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -66,6 +65,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,7 +73,6 @@ import me.atri.data.db.entity.MessageEntity
 import org.koin.androidx.compose.koinViewModel
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import me.atri.utils.FileUtils.saveAtriAvatar
 import java.util.Locale
@@ -128,6 +127,9 @@ private fun DateHeader(label: String) {
     }
 }
 
+// 计算某个日期分组内最后一条消息在列表中的位置
+private fun ChatDateSection.lastMessageIndex(): Int = firstIndex + count
+
 private data class SelectedMessageState(
     val message: MessageEntity,
     val anchorBounds: Rect?
@@ -140,6 +142,14 @@ private fun DrawerHeader(
     onChangeAvatar: () -> Unit,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
+    val avatarRequest = remember(avatarPath, context) {
+        ImageRequest.Builder(context)
+            .data(avatarPath.takeIf { it.isNotBlank() })
+            .setParameter("refresh", System.currentTimeMillis(), memoryCacheKey = null)
+            .crossfade(true)
+            .build()
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -184,7 +194,7 @@ private fun DrawerHeader(
             val avatarSize = 96.dp
             if (avatarPath.isNotBlank()) {
                 AsyncImage(
-                    model = avatarPath,
+                    model = avatarRequest,
                     contentDescription = "ATRI 头像",
                     modifier = Modifier
                         .size(avatarSize)
@@ -229,7 +239,7 @@ private fun DrawerHeader(
         }
         Text(text = "ATRI", style = MaterialTheme.typography.titleLarge)
         Text(
-            text = welcomeState.subline.ifBlank { "陪你聊聊今天的心事？" },
+            text = welcomeState.greeting.ifBlank { buildTimeGreeting() },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
@@ -309,7 +319,6 @@ private fun DrawerDateBrowser(
             items(sections, key = { it.date }) { section ->
                 DateSectionCard(
                     section = section,
-                    zoneId = zoneId,
                     today = today
                 ) {
                     onSelect(section)
@@ -322,7 +331,6 @@ private fun DrawerDateBrowser(
 @Composable
 private fun DateSectionCard(
     section: ChatDateSection,
-    zoneId: ZoneId,
     today: LocalDate,
     onClick: () -> Unit
 ) {
@@ -330,10 +338,9 @@ private fun DateSectionCard(
     val background = when (section.date) {
         today -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
         yesterday -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f)
-        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
     }
     val weekday = section.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-    val detail = section.date.format(DateTimeFormatter.ofPattern("M月d日"))
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -351,21 +358,21 @@ private fun DateSectionCard(
         ) {
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
                     text = section.label,
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(
-                    text = "$weekday · $detail",
+                    text = weekday,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Surface(
                 shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
             ) {
                 Text(
                     text = "共 ${section.count} 条",
@@ -417,6 +424,7 @@ fun ChatScreen(
         }
     }
 
+
     LaunchedEffect(pendingScrollIndex, showWelcome, uiState.displayItems.size) {
         val target = pendingScrollIndex
         if (!showWelcome && target != null && uiState.displayItems.isNotEmpty()) {
@@ -454,7 +462,12 @@ fun ChatScreen(
                         onSelect = { section ->
                             scope.launch {
                                 drawerState.close()
-                                listState.animateScrollToItem(section.firstIndex)
+                                if (uiState.displayItems.isNotEmpty()) {
+                                    val target = section
+                                        .lastMessageIndex()
+                                        .coerceAtMost(uiState.displayItems.lastIndex)
+                                    listState.animateScrollToItem(target)
+                                }
                             }
                         }
                     )
@@ -487,13 +500,18 @@ fun ChatScreen(
                             reference = uiState.referencedMessage,
                             onClearReference = { viewModel.clearReferencedAttachments() },
                             onToggleReferenceAttachment = { url -> viewModel.toggleReferencedAttachment(url) },
+                            onCancelProcessing = { viewModel.cancelSending() },
                             onSendMessage = { content, attachments -> viewModel.sendMessage(content, attachments) }
                         )
                     }
                 }
             }
         ) { paddingValues ->
-            Box(modifier = Modifier.padding(paddingValues)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
                 if (showWelcome) {
                     if (welcomeState.isLoading) {
                         DailyWelcomeLoading()
@@ -504,15 +522,15 @@ fun ChatScreen(
                             sessions = uiState.dateSections,
                             onStartChat = {
                                 pendingScrollIndex = uiState.displayItems.lastIndex.takeIf { it >= 0 }
-                                onDismissWelcome()
-                            },
-                            onSelectSession = { section ->
-                                pendingScrollIndex = section.firstIndex
-                                onDismissWelcome()
-                            }
-                        )
-                    }
-                } else {
+                            onDismissWelcome()
+                        },
+                        onSelectSession = { section ->
+                            pendingScrollIndex = section.lastMessageIndex()
+                            onDismissWelcome()
+                        }
+                    )
+                }
+            } else {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
@@ -571,6 +589,15 @@ fun ChatScreen(
                         }
                     }
                 }
+                uiState.error?.let { error ->
+                    AtriErrorBanner(
+                        message = error,
+                        onDismiss = { viewModel.clearError() },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(16.dp)
+                    )
+                }
             }
         }
     }
@@ -613,10 +640,44 @@ fun ChatScreen(
         )
     }
 
-    uiState.error?.let { error ->
-        Snackbar(
-            modifier = Modifier.padding(16.dp),
-            action = { TextButton(onClick = { viewModel.clearError() }) { Text("确定") } }
-        ) { Text(error) }
+}
+
+@Composable
+private fun AtriErrorBanner(
+    message: String,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.errorContainer,
+        tonalElevation = 4.dp,
+        shadowElevation = 6.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "咦，ATRI 这边遇到点小问题~",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+            TextButton(onClick = onDismiss) {
+                Text("好哦")
+            }
+        }
     }
 }

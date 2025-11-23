@@ -1,5 +1,7 @@
 package me.atri.data.repository
 
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.ResponseBody
@@ -29,7 +31,7 @@ class StreamCollector(
         var thinkingStartTime: Long? = null
         var thinkingEndTime: Long? = null
         var lastUpdateTime = System.currentTimeMillis()
-        // 0 代表无节流，每次分片都立即推送，流式最丝滑
+        // 0 代表无节流，每次分片都立即推送
         val updateInterval = 0L
 
         fun resolveThinkingBounds(chunkType: String) {
@@ -55,7 +57,7 @@ class StreamCollector(
         }
 
         responseBody.byteStream().bufferedReader().use { reader ->
-            while (true) {
+            while (currentCoroutineContext().isActive) {
                 val line = reader.readLine() ?: break
                 if (!line.startsWith("data: ")) continue
                 val data = line.substring(6).trim()

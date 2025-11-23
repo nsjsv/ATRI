@@ -70,6 +70,7 @@ fun InputBar(
     reference: ChatUiState.ReferencedMessage? = null,
     onClearReference: () -> Unit = {},
     onToggleReferenceAttachment: (String) -> Unit = {},
+    onCancelProcessing: () -> Unit = {},
     onSendMessage: (String, List<PendingAttachment>) -> Unit
 ) {
     val context = LocalContext.current
@@ -185,7 +186,11 @@ fun InputBar(
                 )
 
                 val canSend = text.isNotBlank() || attachments.isNotEmpty()
-                val buttonEnabled = enabled && canSend && !isProcessing
+                val buttonEnabled = if (isProcessing) {
+                    true
+                } else {
+                    enabled && canSend
+                }
                 val buttonColors = IconButtonDefaults.filledIconButtonColors(
                     containerColor = if (canSend || isProcessing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                     contentColor = if (canSend || isProcessing) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -195,7 +200,9 @@ fun InputBar(
 
                 FilledIconButton(
                     onClick = {
-                        if (canSend) {
+                        if (isProcessing) {
+                            onCancelProcessing()
+                        } else if (canSend) {
                             onSendMessage(text, attachments.toList())
                             text = ""
                             attachments.clear()
@@ -208,7 +215,7 @@ fun InputBar(
                         CircularProgressIndicator(
                             modifier = Modifier.size(20.dp),
                             color = MaterialTheme.colorScheme.onPrimary,
-                            strokeWidth = 2.dp
+                            strokeWidth = 2.5.dp
                         )
                     } else {
                         Icon(

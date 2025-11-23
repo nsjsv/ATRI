@@ -31,3 +31,14 @@ dist/
 worker/.env
 ATRI/app/*.keystore
 ATRI/app/*.jks
+
+# Claude Code 配置
+.claude/
+
+# Kotlin 编译缓存
+ATRI/.kotlin/
+**/.kotlin/
+
+# 个人脚本和临时文件
+*.bat
+*副本*

@@ -3,7 +3,13 @@ package me.atri.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import me.atri.data.model.AtriStatus
 import me.atri.data.model.Attachment
 import me.atri.data.model.AttachmentType
@@ -14,7 +20,6 @@ import me.atri.data.datastore.PreferencesStore
 import me.atri.data.db.entity.MessageEntity
 import java.time.Instant
 import java.time.LocalDate
-import java.time.LocalTime
 import java.time.ZoneId
 import java.util.Calendar
 
@@ -63,6 +68,8 @@ class ChatViewModel(
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+    private var currentSendJob: Job? = null
+    private var pendingUserMessageId: String? = null
     data class WelcomeUiState(
         val greeting: String = "",
         val subline: String = "",
@@ -185,8 +192,9 @@ class ChatViewModel(
 
     fun sendMessage(content: String, attachments: List<PendingAttachment> = emptyList()) {
         if (content.isBlank() && attachments.isEmpty()) return
+        if (currentSendJob?.isActive == true) return
 
-        viewModelScope.launch {
+        currentSendJob = viewModelScope.launch {
             val referenceSnapshot = _uiState.value.referencedMessage
             val selectedReferenceAttachments = referenceSnapshot
                 ?.attachments
@@ -199,51 +207,79 @@ class ChatViewModel(
             var generating: MessageEntity? = null
             var atriTimestamp: Long? = null
 
-            val result = chatRepository.sendMessage(
-                content = content,
-                attachments = attachments,
-                reusedAttachments = selectedReferenceAttachments
-            ) { streamedText, thinkingText, thinkingStart, thinkingEnd ->
-                if (streamedText.isEmpty() && thinkingText.isNullOrEmpty()) return@sendMessage
-                val resolvedTimestamp = atriTimestamp ?: run {
-                    val now = System.currentTimeMillis()
-                    val latestUser = _uiState.value.historyMessages.lastOrNull { !it.isFromAtri }?.timestamp
-                    val adjusted = latestUser?.let { maxOf(now, it + 1) } ?: now
-                    atriTimestamp = adjusted
-                    adjusted
+            try {
+                val result = chatRepository.sendMessage(
+                    content = content,
+                    attachments = attachments,
+                    reusedAttachments = selectedReferenceAttachments,
+                    onUserMessagePrepared = { message ->
+                        pendingUserMessageId = message.id
+                    }
+                ) { streamedText, thinkingText, thinkingStart, thinkingEnd ->
+                    if (streamedText.isEmpty() && thinkingText.isNullOrEmpty()) return@sendMessage
+                    val resolvedTimestamp = atriTimestamp ?: run {
+                        val now = System.currentTimeMillis()
+                        val latestUser = _uiState.value.historyMessages.lastOrNull { !it.isFromAtri }?.timestamp
+                        val adjusted = latestUser?.let { maxOf(now, it + 1) } ?: now
+                        atriTimestamp = adjusted
+                        adjusted
+                    }
+                    val base = generating ?: MessageEntity(
+                        content = streamedText,
+                        isFromAtri = true,
+                        timestamp = resolvedTimestamp,
+                        thinkingContent = thinkingText,
+                        thinkingStartTime = thinkingStart,
+                        thinkingEndTime = thinkingEnd
+                    )
+                    val updated = base.copy(
+                        content = streamedText,
+                        thinkingContent = thinkingText,
+                        thinkingStartTime = thinkingStart,
+                        thinkingEndTime = thinkingEnd
+                    )
+                    generating = updated
+                    updateState { state -> state.copy(generatingMessage = updated) }
                 }
-                val base = generating ?: MessageEntity(
-                    content = streamedText,
-                    isFromAtri = true,
-                    timestamp = resolvedTimestamp,
-                    thinkingContent = thinkingText,
-                    thinkingStartTime = thinkingStart,
-                    thinkingEndTime = thinkingEnd
-                )
-                val updated = base.copy(
-                    content = streamedText,
-                    thinkingContent = thinkingText,
-                    thinkingStartTime = thinkingStart,
-                    thinkingEndTime = thinkingEnd
-                )
-                generating = updated
-                updateState { state -> state.copy(generatingMessage = updated) }
-            }
 
-            if (result.isSuccess) {
-                generating?.let { chatRepository.persistAtriMessage(it) }
-                statusRepository.incrementIntimacy(1)
-                if (referenceSnapshot != null) {
-                    clearReferencedAttachments()
+                if (result.isSuccess) {
+                    generating?.let { chatRepository.persistAtriMessage(it) }
+                    statusRepository.incrementIntimacy(1)
+                    if (referenceSnapshot != null) {
+                        clearReferencedAttachments()
+                    }
+                } else {
+                    val errorHint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
+                    updateState { it.copy(error = "发送失败: $errorHint") }
                 }
-            } else {
-                val errorHint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
-                updateState { it.copy(error = "发送失败: $errorHint") }
+            } catch (cancel: CancellationException) {
+                cleanupCancelledSend()
+                throw cancel
+            } finally {
+                pendingUserMessageId = null
+                updateState { it.copy(isLoading = false, generatingMessage = null) }
+                if (isActive) {
+                    refreshWelcomeState()
+                }
+                currentSendJob = null
             }
-
-            updateState { it.copy(isLoading = false, generatingMessage = null) }
-            refreshWelcomeState()
         }
+    }
+
+    fun cancelSending() {
+        currentSendJob?.cancel()
+    }
+
+    private suspend fun cleanupCancelledSend() = withContext(NonCancellable) {
+        val logId = pendingUserMessageId ?: return@withContext
+        pendingUserMessageId = null
+        runCatching {
+            chatRepository.deleteMessage(logId, syncRemote = false)
+        }
+        runCatching {
+            chatRepository.deleteConversationLogs(listOf(logId))
+        }
+        updateState { it.copy(generatingMessage = null, isLoading = false, currentStatus = AtriStatus.Online) }
     }
 
     fun referenceAttachmentsFrom(message: MessageEntity) {
@@ -317,101 +353,63 @@ class ChatViewModel(
             val all = _uiState.value.historyMessages
             val target = message ?: all.lastOrNull { it.isFromAtri }
             if (target == null) return@launch
+            val (userMessage, userIndex) = if (target.isFromAtri) {
+                val atriIndex = all.indexOfFirst { it.id == target.id }
+                if (atriIndex <= 0) {
+                    null
+                } else {
+                    val index = (atriIndex - 1 downTo 0).firstOrNull { !all[it].isFromAtri }
+                    index?.let { all[it] to it }
+                }
+            } else {
+                val index = all.indexOfFirst { it.id == target.id }
+                if (index == -1) null else all[index] to index
+            } ?: return@launch
 
             updateState { it.copy(isLoading = true, currentStatus = AtriStatus.Thinking) }
 
-            if (target.isFromAtri) {
-                val atriIndex = all.indexOfFirst { it.id == target.id }
-                if (atriIndex <= 0) {
-                    updateState { it.copy(isLoading = false, generatingMessage = null) }
-                    return@launch
-                }
-                val userMsg = (atriIndex - 1 downTo 0).asSequence().map { all[it] }.firstOrNull { !it.isFromAtri }
-                if (userMsg == null) {
-                    updateState { it.copy(isLoading = false, generatingMessage = null) }
-                    return@launch
-                }
+            deleteMessagesAfter(userMessage.id)
+            delay(300)
 
-                val contextUntilAtri = all.take(atriIndex)
-                val trimmedContext = if (contextUntilAtri.isNotEmpty() && !contextUntilAtri.last().isFromAtri) {
-                    contextUntilAtri.dropLast(1)
-                } else contextUntilAtri
+            val contextUntilUser = all.take(userIndex + 1)
+            val trimmedUserContext = if (contextUntilUser.isNotEmpty() && !contextUntilUser.last().isFromAtri) {
+                contextUntilUser.dropLast(1)
+            } else contextUntilUser
 
-                var generating: MessageEntity? = null
-                val result = chatRepository.regenerateResponse(
-                    onStreamResponse = { streamedText, thinkingText, thinkingStart, thinkingEnd ->
-                        if (streamedText.isEmpty() && thinkingText.isNullOrEmpty()) return@regenerateResponse
-                        val base = generating ?: target
-                        val updated = base.copy(
-                            content = streamedText,
-                            thinkingContent = thinkingText,
-                            thinkingStartTime = thinkingStart,
-                            thinkingEndTime = thinkingEnd
-                        )
-                        generating = updated
-                        updateState { state -> state.copy(generatingMessage = updated) }
-                    },
-                    userContent = userMsg.content,
-                    userAttachments = userMsg.attachments,
-                    contextMessages = trimmedContext
-                )
+            var generating: MessageEntity? = null
+            val timestamp = System.currentTimeMillis()
 
-                if (result.isSuccess) {
-                    generating?.let { chatRepository.persistAtriMessage(it) }
-                } else {
-                    val hint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
-                    updateState { it.copy(error = "重新生成失败: $hint") }
-                }
+            val result = chatRepository.regenerateResponse(
+                onStreamResponse = { streamedText, thinkingText, thinkingStart, thinkingEnd ->
+                    if (streamedText.isEmpty() && thinkingText.isNullOrEmpty()) return@regenerateResponse
+                    val base = generating ?: MessageEntity(
+                        content = streamedText,
+                        isFromAtri = true,
+                        timestamp = timestamp,
+                        thinkingContent = thinkingText,
+                        thinkingStartTime = thinkingStart,
+                        thinkingEndTime = thinkingEnd
+                    )
+                    val updated = base.copy(
+                        content = streamedText,
+                        thinkingContent = thinkingText,
+                        thinkingStartTime = thinkingStart,
+                        thinkingEndTime = thinkingEnd
+                    )
+                    generating = updated
+                    updateState { state -> state.copy(generatingMessage = updated) }
+                },
+                userContent = userMessage.content,
+                userAttachments = userMessage.attachments,
+                contextMessages = trimmedUserContext
+            )
+
+            if (result.isSuccess) {
+                generating?.let { chatRepository.persistAtriMessage(it) }
+                statusRepository.incrementIntimacy(1)
             } else {
-                val userIndex = all.indexOfFirst { it.id == target.id }
-                if (userIndex == -1) {
-                    updateState { it.copy(isLoading = false, generatingMessage = null) }
-                    return@launch
-                }
-
-                deleteMessagesAfter(target.id)
-                kotlinx.coroutines.delay(300)
-
-                val contextUntilUser = all.take(userIndex + 1)
-                val trimmedUserContext = if (contextUntilUser.isNotEmpty() && !contextUntilUser.last().isFromAtri) {
-                    contextUntilUser.dropLast(1)
-                } else contextUntilUser
-
-                var generating: MessageEntity? = null
-                val timestamp = System.currentTimeMillis()
-
-                val result = chatRepository.regenerateResponse(
-                    onStreamResponse = { streamedText, thinkingText, thinkingStart, thinkingEnd ->
-                        if (streamedText.isEmpty() && thinkingText.isNullOrEmpty()) return@regenerateResponse
-                        val base = generating ?: MessageEntity(
-                            content = streamedText,
-                            isFromAtri = true,
-                            timestamp = timestamp,
-                            thinkingContent = thinkingText,
-                            thinkingStartTime = thinkingStart,
-                            thinkingEndTime = thinkingEnd
-                        )
-                        val updated = base.copy(
-                            content = streamedText,
-                            thinkingContent = thinkingText,
-                            thinkingStartTime = thinkingStart,
-                            thinkingEndTime = thinkingEnd
-                        )
-                        generating = updated
-                        updateState { state -> state.copy(generatingMessage = updated) }
-                    },
-                    userContent = target.content,
-                    userAttachments = target.attachments,
-                    contextMessages = trimmedUserContext
-                )
-
-                if (result.isSuccess) {
-                    generating?.let { chatRepository.persistAtriMessage(it) }
-                    statusRepository.incrementIntimacy(1)
-                } else {
-                    val hint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
-                    updateState { it.copy(error = "重新生成失败: $hint") }
-                }
+                val hint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
+                updateState { it.copy(error = "重新生成失败: $hint") }
             }
 
             updateState { it.copy(isLoading = false, generatingMessage = null) }
@@ -426,7 +424,6 @@ class ChatViewModel(
 
     fun dismissRegeneratePrompt(shouldRegenerate: Boolean) {
         viewModelScope.launch {
-            // 先关闭弹窗，避免需要多次点击才能消失
             val editedId = _uiState.value.editedMessageId
             updateState {
                 it.copy(
@@ -441,14 +438,13 @@ class ChatViewModel(
                 val editedMessage = allMessages.getOrNull(editedIndex)
 
                 if (editedMessage != null && !editedMessage.isFromAtri) {
-                    // 组装严格到被编辑消息为止的上下文，并排除当前用户消息，避免在 worker 端重复
                     val contextUntilEdited = if (editedIndex >= 0) allMessages.take(editedIndex + 1) else allMessages
                     val trimmedEditedContext = if (contextUntilEdited.isNotEmpty() && !contextUntilEdited.last().isFromAtri) {
                         contextUntilEdited.dropLast(1)
                     } else contextUntilEdited
 
                     deleteMessagesAfter(editedId)
-                    kotlinx.coroutines.delay(300)
+                    delay(300)
 
                     updateState { it.copy(isLoading = true, currentStatus = AtriStatus.Thinking) }
 
@@ -505,7 +501,7 @@ class ChatViewModel(
             val info = result.getOrNull()
             _welcomeUiState.update {
                 it.copy(
-                    greeting = buildGreetingText(),
+                    greeting = buildTimeGreeting(),
                     subline = buildSubline(info?.daysSince),
                     daysSinceLastChat = info?.daysSince,
                     isLoading = false
@@ -513,22 +509,6 @@ class ChatViewModel(
             }
         }
     }
-
-    private fun buildGreetingText(): String {
-        val hourMinute = LocalTime.now().let { it.hour * 60 + it.minute }
-        return when {
-            hourMinute in minutesOf(5, 0)..minutesOf(7, 59) -> "清晨的空气很新鲜，和我一起迎接新的一天吧。"
-            hourMinute in minutesOf(8, 0)..minutesOf(11, 29) -> "早上好呀，我已经想好今天要和你分享什么啦。"
-            hourMinute in minutesOf(11, 30)..minutesOf(13, 29) -> "午间总有点慵懒，陪我聊会儿天好吗？"
-            hourMinute in minutesOf(13, 30)..minutesOf(17, 29) -> "下午好，我记得你说的每一句话，要不要继续聊？"
-            hourMinute in minutesOf(17, 30)..minutesOf(20, 29) -> "傍晚啦，我很想知道你今天经历了什么。"
-            hourMinute in minutesOf(20, 30)..minutesOf(22, 29) -> "夜色正浓，我想靠在你身边慢慢聊。"
-            hourMinute in minutesOf(22, 30)..minutesOf(23, 59) -> "已经很晚了，和我说说悄悄话，然后早点休息，好吗？"
-            else -> "半夜还醒着呀，我会一直陪着你，但也要照顾好身体。"
-        }
-    }
-
-    private fun minutesOf(hour: Int, minute: Int) = hour * 60 + minute
 
     private fun buildSubline(daysSince: Int?): String {
         return when {

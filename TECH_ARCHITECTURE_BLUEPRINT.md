@@ -98,7 +98,7 @@ E:/ATRI
    - 根据 `userId + content` 调用 `searchMemories()`，检索 Vectorize 中的记忆。
    - 使用 `composeSystemPrompt()` 拼接基础人格、阶段提示、关联记忆，同时把当天的“工作记忆”（`fetchConversationLogsSince()`）与历史日记回放（`buildLongTermRecalls()`）注入 `workingMemoryTimeline`、`longTermContext`。
    - 把历史消息与附件格式化为 OpenAI 兼容结构，图片会转换为 `image_url`，普通文件以“用户上传的文件 … 地址 …”的文本说明。
-   - 通过 `callChatCompletions()` 调 Cloudflare 代理的 `OPENAI_API_URL`，模型名默认 `openai.gpt-5-chat`，启用 `stream: true`，超时时间由调用方传入（聊天 120s、日记 60s）。
+   - 通过 `callChatCompletions()` 调用 OpenAI 兼容的 `OPENAI_API_URL`，模型名默认 `gpt-4`，启用 `stream: true`，超时时间由调用方传入（聊天 120s、日记 60s）。
    - 用 `pipeChatStream()` 将分片拆成 reasoning/text SSE 并发回客户端，便于在 UI 中显示“思考过程”。
 3. Android 解析 SSE（见 `utils/sse`），实时渲染在聊天 UI。
 
@@ -192,7 +192,7 @@ Body: <binary>
 ---
 
 ## 6. Android 端实现要点
-1. **网络层**：`NetworkModule` 在启动时读取 DataStore 里的 baseUrl，若为空采用 `https://mikuscat.qzz.io` 作为占位。OkHttp 启用了 `HttpLoggingInterceptor`，方便调试 SSE。
+1. **网络层**：`NetworkModule` 在启动时读取 DataStore 里的 baseUrl，若为空采用 `https://your-worker.workers.dev` 作为占位。OkHttp 启用了 `HttpLoggingInterceptor`，方便调试 SSE。
 2. **数据同步**：`ChatRepository` 会一边读本地消息，一边监听 SSE 返回；`DiaryRepository` 负责触发 `/diary/generate` 并把结果写入 Room。
 3. **设置项**：`PreferencesStore` 保存 Worker URL、昵称、`userId`。清空数据会生成新的 UUID，等同于“遗忘旧记忆”。
 4. **WorkManager（历史代码）**：`ATRI/app/src/main/java/me/atri/worker/` 留下了旧的本地提醒任务。如需恢复本地定时器，可在这里扩展；但目前主流程依赖 Cloudflare Cron。
@@ -204,7 +204,7 @@ Body: <binary>
 1. **Wrangler 配置**：`wrangler.toml` 已绑定 Vectorize、R2、D1，并设置 Cron。只需修改 `account_id`、`index_name`、`bucket_name` 即可适配自己的账号。
 2. **环境变量**：
    - 必填：`OPENAI_API_KEY`、`EMBEDDINGS_API_KEY`
-   - 可选：`OPENAI_API_URL`（默认为 `https://aigate.binklac.com/v1`）、`EMBEDDINGS_API_URL`（默认为 `https://api.siliconflow.cn/v1`）、`EMBEDDINGS_MODEL`、`ADMIN_API_KEY`（启用受保护的 `/admin/clear-user`）
+   - 可选：`OPENAI_API_URL`（默认为 `https://api.openai.com/v1`）、`EMBEDDINGS_API_URL`、`EMBEDDINGS_MODEL`、`ADMIN_API_KEY`（启用受保护的 `/admin/clear-user`）
 3. **服务层**：
    - `openai-service` 统一设置超时（默认 60s，可通过参数传入 120s）
    - `memory-service` 直接使用 `diary:<userId>:<date>` 作为向量主键，只写入轻量 metadata，聊天时再根据 ID 回查 D1 获取正文
@@ -296,7 +296,7 @@ Body: <binary>
 | --- | --- | --- | --- | --- |
 | 本地联调 | `http://10.0.2.2:8787`（模拟器）/ `http://<局域网IP>:8787`（真机） | `npm run dev`（Wrangler 本地，端口 8787） | 无需 R2 / Vectorize（但相关调用返回 mock，需要 `--remote` 才能访问云端绑定） | 适合调试 UI 与基本 SSE 流；记忆/附件功能依赖云端时可临时禁用。 |
 | 远程沙箱 | `https://<worker>.workers.dev` | `npm run deploy` 部署到测试账号 | Cloudflare 免费套餐：1 个 R2 bucket、1 个 Vectorize、1 个 D1 | 注意免费版 Cron 触发存在 ±1 分钟延迟。 |
-| 生产环境 | 自定义域名（例如 `https://mikuscat.qzz.io`） | 同上，但需在 Dashboard 绑定自定义域 | 至少 1 套 R2 / Vectorize / D1；建议单独账号管理 Secrets | 需要配置 HTTPS 证书、Access 控制以及更高的 Worker 限额。 |
+| 生产环境 | 自定义域名 | 同上，但需在 Dashboard 绑定自定义域 | 至少 1 套 R2 / Vectorize / D1；建议单独账号管理 Secrets | 需要配置 HTTPS 证书、Access 控制以及更高的 Worker 限额。 |
 
 > Secrets（`OPENAI_API_KEY`、`EMBEDDINGS_API_KEY`）只在 Cloudflare 端保存；本地联调可以通过 `.dev.vars` 或环境变量临时注入。
 

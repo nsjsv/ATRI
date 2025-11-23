@@ -1,7 +1,6 @@
 import prompts from '../config/prompts.json';
 import { Env } from '../types';
 import { sanitizeText } from '../utils/sanitize';
-import { CHAT_MODEL } from '../types';
 import { callChatCompletions, ChatCompletionError } from './openai-service';
 
 const diaryPrompts = prompts.diary;
@@ -24,10 +23,8 @@ export async function generateDiaryFromConversation(env: Env, params: {
     throw new Error('empty_conversation');
   }
 
-  const limitedConversation =
-    cleanedConversation.length > 4000
-      ? cleanedConversation.slice(cleanedConversation.length - 4000)
-      : cleanedConversation;
+  // 移除 4000 字符限制，允许读取完整对话
+  const limitedConversation = cleanedConversation;
 
   const timestamp = typeof params.timestamp === 'number' ? params.timestamp : Date.now();
   const formattedDate = formatDiaryDate(timestamp);
@@ -50,7 +47,6 @@ export async function generateDiaryFromConversation(env: Env, params: {
     .replace(/\{userName\}/g, params.userName || '这个人')
     .replace(/\{conversation\}/g, limitedConversation)
     .replace(/\{daysSinceInfo\}/g, daysSinceInfo);
-
   try {
     const response = await callChatCompletions(
       env,
@@ -59,26 +55,39 @@ export async function generateDiaryFromConversation(env: Env, params: {
           { role: 'system', content: diaryPrompts.system },
           { role: 'user', content: userPrompt }
         ],
-        temperature: 0.7,
-        max_tokens: 500
+        temperature: 0.7
       },
-      { model: CHAT_MODEL }
+      { model: 'gpt-4' }
     );
 
     const data = await response.json();
-    const diaryContent = data.choices?.[0]?.message?.content || '';
-    const parsed = parseDiaryResponse(diaryContent);
-    const finalContent = parsed.diary?.trim() || diaryContent.trim();
-    const highlightList = Array.isArray(parsed.highlights)
-      ? parsed.highlights
-        .map(item => typeof item === 'string' ? item.trim() : '')
-        .filter(item => item.length > 0)
-      : [];
+    const rawContent = data.choices?.[0]?.message?.content || '';
+    const parsed = parseDiaryResponse(rawContent);
+
+    // 兜底逻辑：如果解析不到日记内容，说明 JSON 格式有问题或被截断
+    let finalContent = parsed.diary?.trim();
+    if (!finalContent) {
+      const trimmedRaw = rawContent.trim();
+      const looksLikeStructured =
+        /"diary"\s*:/.test(trimmedRaw) ||
+        trimmedRaw.startsWith('{') ||
+        trimmedRaw.startsWith('```');
+
+      if (!looksLikeStructured && trimmedRaw) {
+        finalContent = trimmedRaw;
+      } else {
+        finalContent = '日记生成数据异常。';
+      }
+    }
+
+    // 兜底逻辑：如果解析不到心情，尝试从文本中检测
+    const finalMood = parsed.mood || detectMoodFromDiary(finalContent);
+
     return {
       content: finalContent,
       timestamp,
-      mood: detectMoodFromDiary(finalContent),
-      highlights: highlightList
+      mood: finalMood,
+      highlights: parsed.highlights || []
     } as DiaryGenerationResult;
   } catch (error) {
     if (error instanceof ChatCompletionError) {
@@ -117,21 +126,74 @@ function detectMoodFromDiary(content: string): string {
   return '平静';
 }
 
-function parseDiaryResponse(raw: string): { diary?: string; highlights?: string[] } {
+function parseDiaryResponse(raw: string): { diary?: string; highlights?: string[]; mood?: string } {
   const trimmed = raw.trim();
   if (!trimmed) {
     return {};
   }
+
+  // 首先尝试标准 JSON 解析
   try {
-    const start = trimmed.indexOf('{');
-    const end = trimmed.lastIndexOf('}');
-    const jsonText = start !== -1 && end !== -1 ? trimmed.slice(start, end + 1) : trimmed;
-    const parsed = JSON.parse(jsonText);
-    return {
-      diary: typeof parsed.diary === 'string' ? parsed.diary : undefined,
-      highlights: Array.isArray(parsed.highlights) ? parsed.highlights : undefined
-    };
-  } catch {
-    return {};
+    // 移除可能存在的 Markdown 代码块标记
+    let jsonText = trimmed;
+    if (jsonText.startsWith('```json')) {
+      jsonText = jsonText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    } else if (jsonText.startsWith('```')) {
+      jsonText = jsonText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    }
+
+    const start = jsonText.indexOf('{');
+    const end = jsonText.lastIndexOf('}');
+
+    if (start !== -1 && end !== -1) {
+      const extracted = jsonText.slice(start, end + 1);
+      const parsed = JSON.parse(extracted);
+
+      return {
+        diary: typeof parsed.diary === 'string' ? parsed.diary : undefined,
+        highlights: Array.isArray(parsed.highlights) ? parsed.highlights : undefined,
+        mood: typeof parsed.mood === 'string' ? parsed.mood : undefined
+      };
+    }
+  } catch (err) {
+    // JSON 解析失败，尝试部分提取
+    console.warn('[ATRI] JSON parse failed, attempting partial extraction:', err);
   }
+
+  // 如果标准解析失败，尝试用正则提取 diary 字段（应对 JSON 截断）
+  const result: { diary?: string; highlights?: string[]; mood?: string } = {};
+
+  // 提取 diary 字段
+  const diaryMatch = trimmed.match(/"diary"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (diaryMatch) {
+    try {
+      // 尝试还原转义字符
+      result.diary = JSON.parse(`"${diaryMatch[1]}"`);
+    } catch {
+      result.diary = diaryMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
+    }
+  }
+
+  // 提取 highlights 数组
+  const highlightsMatch = trimmed.match(/"highlights"\s*:\s*\[(.*?)\]/s);
+  if (highlightsMatch) {
+    try {
+      const highlightsJson = `[${highlightsMatch[1]}]`;
+      result.highlights = JSON.parse(highlightsJson);
+    } catch {
+      // 手动提取字符串
+      const items = highlightsMatch[1].match(/"([^"]*)"/g);
+      if (items) {
+        result.highlights = items.map(item => item.slice(1, -1));
+      }
+    }
+  }
+
+  // 提取 mood 字段
+  const moodMatch = trimmed.match(/"mood"\s*:\s*"([^"]*)"/);
+  if (moodMatch) {
+    result.mood = moodMatch[1];
+  }
+
+  return result;
 }

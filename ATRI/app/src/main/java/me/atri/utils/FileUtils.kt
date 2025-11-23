@@ -64,7 +64,8 @@ object FileUtils {
 
     fun Context.saveAtriAvatar(source: Uri): String? {
         val targetDir = filesDir.resolve("atri").apply { if (!exists()) mkdirs() }
-        val targetFile = targetDir.resolve("avatar.jpg")
+        targetDir.listFiles()?.filter { it.name.startsWith("avatar_") }?.forEach { it.delete() }
+        val targetFile = targetDir.resolve("avatar_${System.currentTimeMillis()}.jpg")
         return runCatching {
             contentResolver.openInputStream(source)?.use { input ->
                 targetFile.outputStream().use { output ->

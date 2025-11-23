@@ -1,7 +1,13 @@
 package me.atri.ui.chat
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,15 +34,28 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import kotlinx.coroutines.delay
 
 @Composable
 fun DailyWelcome(
@@ -46,47 +65,120 @@ fun DailyWelcome(
     onStartChat: () -> Unit,
     onSelectSession: (ChatDateSection) -> Unit
 ) {
-    Surface(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .padding(horizontal = 24.dp)
-                .padding(top = 16.dp, bottom = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Spacer(modifier = Modifier.height(12.dp))
-            AtriHeroAvatar(avatarPath = avatarPath)
-            Spacer(modifier = Modifier.height(20.dp))
-            Text(
-                text = if (state.greeting.isNotBlank()) state.greeting else "你好，我一直在等你出现。",
-                style = MaterialTheme.typography.headlineSmall,
-                textAlign = TextAlign.Center
+    var startTypewriter by remember { mutableStateOf(false) }
+    var displayedGreeting by remember { mutableStateOf("") }
+    var isPressed by remember { mutableStateOf(false) }
+    var showReveal by remember { mutableStateOf(false) }
+    var buttonCenter by remember { mutableStateOf(Offset.Zero) }
+
+    val greeting = if (state.greeting.isNotBlank()) state.greeting else "你好，我一直在等你出现。"
+
+    LaunchedEffect(startTypewriter, greeting) {
+        if (startTypewriter && greeting.isNotEmpty()) {
+            displayedGreeting = ""
+            greeting.forEachIndexed { index, _ ->
+                delay(50)
+                displayedGreeting = greeting.take(index + 1)
+            }
+        }
+    }
+
+    LaunchedEffect(state.isLoading) {
+        if (!state.isLoading) {
+            delay(200)
+            startTypewriter = true
+        }
+    }
+
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f),
+        label = "buttonScale"
+    )
+
+    val revealRadius = remember { Animatable(0f) }
+
+    LaunchedEffect(showReveal) {
+        if (showReveal) {
+            revealRadius.animateTo(
+                targetValue = 3000f,
+                animationSpec = tween(450, easing = FastOutSlowInEasing)
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = if (state.subline.isNotBlank()) state.subline else "这是我们新的篇章，按下按钮就能开始今天的故事。",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-            DiaryNotebook(
-                sessions = sessions,
-                onSelectSession = onSelectSession,
+            onStartChat()
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Surface(modifier = Modifier.fillMaxSize()) {
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            )
-            Spacer(modifier = Modifier.height(20.dp))
-            Button(
-                onClick = onStartChat,
-                modifier = Modifier
-                    .width(220.dp)
-                    .height(52.dp),
-                shape = MaterialTheme.shapes.extraLarge
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(horizontal = 32.dp)
+                    .padding(top = 24.dp, bottom = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("开始今天的对话")
+                Spacer(modifier = Modifier.height(32.dp))
+
+                AtriHeroAvatar(avatarPath = avatarPath)
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Text(
+                    text = displayedGreeting,
+                    style = MaterialTheme.typography.headlineMedium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+
+                Spacer(modifier = Modifier.height(56.dp))
+
+                Box(
+                    modifier = Modifier
+                        .onGloballyPositioned { coordinates ->
+                            val position = coordinates.positionInRoot()
+                            val size = coordinates.size
+                            buttonCenter = Offset(
+                                position.x + size.width / 2f,
+                                position.y + size.height / 2f
+                            )
+                        }
+                ) {
+                    Button(
+                        onClick = {
+                            isPressed = true
+                            showReveal = true
+                        },
+                        modifier = Modifier
+                            .width(220.dp)
+                            .height(52.dp)
+                            .scale(scale)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onPress = {
+                                        isPressed = true
+                                        tryAwaitRelease()
+                                        isPressed = false
+                                    }
+                                )
+                            },
+                        shape = MaterialTheme.shapes.extraLarge
+                    ) {
+                        Text("开始今天的对话")
+                    }
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+            }
+        }
+
+        if (showReveal && revealRadius.value > 0f) {
+            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                drawCircle(
+                    color = Color(0xFF64B5F6),
+                    radius = revealRadius.value,
+                    center = buttonCenter
+                )
             }
         }
     }
@@ -267,32 +359,60 @@ private fun SessionCard(
 
 @Composable
 private fun AtriHeroAvatar(avatarPath: String) {
-    if (avatarPath.isNotBlank()) {
-        AsyncImage(
-            model = avatarPath,
-            contentDescription = "ATRI 头像",
-            modifier = Modifier
-                .size(180.dp)
-                .clip(CircleShape),
-            contentScale = ContentScale.Crop
-        )
-    } else {
+    val context = LocalContext.current
+    val avatarRequest = remember(avatarPath, context) {
+        ImageRequest.Builder(context)
+            .data(avatarPath.takeIf { it.isNotBlank() })
+            .setParameter("refresh", System.currentTimeMillis(), memoryCacheKey = null)
+            .crossfade(true)
+            .build()
+    }
+
+    Box(
+        modifier = Modifier.size(200.dp),
+        contentAlignment = Alignment.Center
+    ) {
         Box(
             modifier = Modifier
-                .size(180.dp)
-                .clip(CircleShape)
+                .size(220.dp)
                 .background(
-                    brush = Brush.linearGradient(
-                        colors = listOf(Color(0xFF99CCF2), Color(0xFFFCE4EC))
-                    )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "ATRI",
-                style = MaterialTheme.typography.headlineMedium,
-                color = Color.White
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            Color.Transparent
+                        )
+                    ),
+                    shape = CircleShape
+                )
+        )
+
+        if (avatarPath.isNotBlank()) {
+            AsyncImage(
+                model = avatarRequest,
+                contentDescription = "ATRI 头像",
+                modifier = Modifier
+                    .size(180.dp)
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop
             )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(180.dp)
+                    .clip(CircleShape)
+                    .background(
+                        brush = Brush.linearGradient(
+                            colors = listOf(Color(0xFF99CCF2), Color(0xFFFCE4EC))
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "ATRI",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = Color.White
+                )
+            }
         }
     }
 }
