@@ -157,32 +157,202 @@ Worker 所有路由都依赖共享提示词（`src/config/prompts.json`）和封
 
 ---
 
-## 7. 快速开始
-### 7.1 部署 Cloudflare Worker
+## 7. 完整配置指南
+
+### 7.0 前置准备
+在开始之前，请确保你拥有以下内容：
+- **Cloudflare 账号**（免费或付费）
+- **OpenAI API Key** 或兼容的大模型服务（如 DeepSeek、阿里等）
+- **Embedding API**（用于向量化，可用 OpenAI 的 embedding 服务）
+- **Node.js 18+** 和 **Python 3.7+**
+- **Android Studio**（用于构建 Android 客户端）
+
+### 7.1 Cloudflare 资源创建与配置
+
+#### 7.1.1 创建 D1 数据库
+1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
+2. 进入 **Workers & Pages** → **D1**
+3. 点击「创建数据库」，命名为 `atri_diary`（或你偏好的名称）
+4. 创建后，在数据库详情页中记下 **Database ID**
+5. 在「SQL 编辑器」中复制 `worker/db/schema.sql` 的所有内容并执行，建立表结构
+
+#### 7.1.2 创建 Vectorize 索引
+1. 进入 **Workers & Pages** → **Vectorize**
+2. 点击「创建索引」，设置如下：
+   - 名称：`atri-memories`
+   - 维度数：`1536`（OpenAI embedding 维度）
+   - 距离度量：`cosine`
+3. 记下 **索引 ID**
+
+#### 7.1.3 创建 R2 Bucket
+1. 进入 **R2**
+2. 点击「创建存储桶」，命名为 `atri-media`（或你偏好的名称）
+3. 配置 CORS（如需跨域上传）：
+   ```json
+   [
+     {
+       "allowedOrigins": ["*"],
+       "allowedMethods": ["GET", "PUT", "POST"],
+       "allowedHeaders": ["*"]
+     }
+   ]
+   ```
+4. 记下 **Bucket 名称**
+
+#### 7.1.4 获取账号信息
+1. 进入 **账户设置** → **账户详情**
+2. 记下 **账号 ID**（32 位字符串）
+
+### 7.2 部署 Cloudflare Worker
+
+#### 7.2.1 更新配置文件
+编辑 `worker/wrangler.toml`，替换以下占位符：
+
+```toml
+account_id = "your-account-id"  # 替换为你的账号 ID
+name = "atri-worker"             # Worker 名称，可自定义
+
+[[d1_databases]]
+binding = "DB"
+database_name = "atri_diary"     # 替换为你创建的 D1 数据库名
+database_id = "your-database-id" # 替换为你的 D1 ID
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "atri-media"       # 替换为你创建的 R2 Bucket 名
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "atri-memories"     # 替换为你创建的 Vectorize 索引名
+```
+
+#### 7.2.2 安装依赖并登录
 ```bash
 cd worker
 npm install
-python ../scripts/sync_shared.py   # 同步提示词
-npx wrangler login
+```
+
+#### 7.2.3 配置 API Key
+```bash
+# 设置 OpenAI API Key
 npx wrangler secret put OPENAI_API_KEY
+# 将你的 OpenAI API Key 粘贴并回车
+
+# 设置 Embedding API Key（如使用 OpenAI）
 npx wrangler secret put EMBEDDINGS_API_KEY
+# 将你的 Embedding API Key 粘贴并回车
+
+# （可选）如果使用非 OpenAI 的大模型服务
+npx wrangler secret put OPENAI_API_URL
+# 例如 https://api.deepseek.com/v1
+
+# （可选）如果使用非 OpenAI 的向量服务
+npx wrangler secret put EMBEDDINGS_API_URL
+# 例如 https://your-embedding-service.com/v1
+```
+
+#### 7.2.4 同步提示词并部署
+```bash
+# 同步提示词到 Worker 配置
+python ../scripts/sync_shared.py
+
+# 部署到 Cloudflare
 npm run deploy
 ```
-部署成功后记下 Worker URL（示例 `https://atri-worker.<your-subdomain>.workers.dev`），或在 Dashboard 为其绑定自定义域名。  
-> 提示：开源仓库里 `wrangler.toml` 仅提供占位信息，记得把 `account_id`、Vectorize/R2/D1 的名称与 `database_id` 换成你自己的 Cloudflare 资源，再写入对应的 API Key。
 
-### 7.2 构建 Android 客户端
+部署成功后，你会看到类似的输出：
+```
+✨ Successfully published your Worker to:
+https://atri-worker.<your-subdomain>.workers.dev
+```
+
+**记下这个 URL**，之后在 Android 客户端需要填入。
+
+### 7.3 本地调试（可选）
+如果想在本地调试 Worker，可以：
+```bash
+npm run dev
+```
+
+本地 dev 服务会运行在 `http://localhost:8787`。注意：
+- 本地调试 **不能访问** Vectorize、R2、D1（需要加 `--remote` 标志）
+- 如需调用云端资源，运行：`npm run dev -- --remote`
+
+### 7.4 构建 Android 客户端
+
+#### 7.4.1 同步提示词
 ```bash
 cd ATRI
-python ../scripts/sync_shared.py   # 同步提示词
-./gradlew assembleDebug            # Windows 用 .\gradlew.bat
+python ../scripts/sync_shared.py
 ```
-调试时可直接在 Android Studio 里运行 `app` 模块。首次进入会提示你填写昵称，然后可以在设置页输入 Worker URL。
 
-### 7.3 手机端配置
-1. 打开设置页，填入 Worker URL（必须是 https，APP 默认写了 `https://your-worker.example.com` 作为占位，记得换成你自己的地址）。
-2. 若想"清空记忆"，点击同页的按钮即可删除本地聊天/日记并重新生成一个新的 userId，之后的对话会以全新身份存储。
-3. 保存后返回聊天界面即可使用。日记需要在「日记」页手动点击生成。
+#### 7.4.2 编译 APK（Debug 版本）
+```bash
+./gradlew assembleDebug  # Windows: .\gradlew.bat assembleDebug
+```
+
+APK 会生成在 `ATRI/app/build/outputs/apk/debug/app-debug.apk`
+
+#### 7.4.3 或在 Android Studio 中运行
+1. 用 Android Studio 打开 `ATRI/` 目录
+2. 等待 Gradle 同步完成
+3. 点击「Run」或按 `Shift + F10`，选择目标设备或模拟器
+
+### 7.5 Android 客户端配置
+
+#### 7.5.1 首次启动
+1. 安装 APK 或在 Android Studio 中运行 App
+2. 首次进入时会要求填写**昵称**（可自定义，如"阿栖"）
+3. 点击「下一步」进入聊天界面
+
+#### 7.5.2 填写 Worker URL
+1. 点击右下角**设置**按钮（⚙️）
+2. 在「Worker 地址」字段填入你的 Worker URL，例如：
+   ```
+   https://atri-worker.<your-subdomain>.workers.dev
+   ```
+   或你绑定的自定义域名，例如：
+   ```
+   https://atri.example.com
+   ```
+   > ⚠️ 必须使用 **HTTPS** 协议
+3. 点击「保存」
+
+#### 7.5.3 验证连接
+1. 返回聊天界面
+2. 尝试发送一条消息，例如「你好」
+3. 如果 Worker 返回了 AI 的回复，说明连接成功！
+
+#### 7.5.4 使用日记功能
+1. 点击底部「日记」标签
+2. 与 ATRI 对话若干条消息
+3. 点击「立即生成日记」按钮
+4. 等待约 10-30 秒，日记生成完成后会显示在列表中
+
+#### 7.5.5 清空记忆
+如果想"遗忘"旧的对话记录，在设置页面点击「清空所有数据」：
+- 会删除本地所有聊天记录和日记
+- 自动生成新的 userId
+- 之后的对话会以全新身份开始
+
+### 7.6 生产环境部署建议
+
+#### 7.6.1 绑定自定义域名
+1. 在 Cloudflare Dashboard 的 **Workers & Pages** 中找到 `atri-worker`
+2. 点击「设置」→「自定义域」
+3. 输入你的域名（需要通过 Cloudflare 管理），例如 `atri.example.com`
+4. 配置 DNS 记录指向 Cloudflare
+
+#### 7.6.2 启用安全控制（可选）
+如果担心接口被滥用，可以：
+- 为 Worker 添加 API Key 校验
+- 使用 Cloudflare Access 限制访问源
+- 设置速率限制规则
+
+#### 7.6.3 监控与告警
+- 使用 `wrangler tail` 查看实时日志
+- 在 Cloudflare Dashboard 的「Analytics」标签监控请求
+- 配置 webhook 在错误时发送告警（可集成钉钉、飞书等）
 
 ---
 
