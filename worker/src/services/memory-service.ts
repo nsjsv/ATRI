@@ -1,10 +1,9 @@
 import { Env } from '../types';
 import { sanitizeText } from '../utils/sanitize';
-import { MemoryCategory } from './data-service';
 
 export async function embedText(text: string, env: Env): Promise<number[]> {
   const base = env.EMBEDDINGS_API_URL || 'https://api.openai.com/v1';
-  const model = env.EMBEDDINGS_MODEL || 'text-embedding-3-large';
+  const model = env.EMBEDDINGS_MODEL || 'BAAI/bge-m3';
   const res = await fetch(`${base}/embeddings`, {
     method: 'POST',
     headers: {
@@ -70,8 +69,7 @@ export async function upsertDiaryMemory(
   if (!date) {
     throw new Error('Diary date is missing');
   }
-  const summary = text.slice(0, 200);
-  const values = await embedText(summary, env);
+  const values = await embedText(text, env);
   const entryId = params.entryId || `diary:${params.userId}:${date}`;
   const metadata = {
     u: params.userId,
@@ -111,83 +109,4 @@ export async function deleteDiaryVectors(env: Env, ids: string[]) {
     }
   }
   return removed;
-}
-
-export async function upsertStructuredMemory(
-  env: Env,
-  params: {
-    userId: string;
-    category: MemoryCategory;
-    key: string;
-    value: string;
-    importance?: number;
-    sourceDate?: string;
-  }
-) {
-  const text = `${params.key}: ${params.value}`;
-  const sanitized = sanitizeText(text).slice(0, 500);
-  if (!sanitized) {
-    return null;
-  }
-
-  const values = await embedText(sanitized, env);
-  const entryId = `mem:${params.userId}:${params.category}:${simpleHash(params.key)}`;
-  const metadata = {
-    u: params.userId,
-    c: params.category,
-    k: params.key,
-    t: params.value.slice(0, 200),
-    imp: params.importance ?? 5,
-    ts: Date.now(),
-    sd: params.sourceDate || ''
-  };
-
-  await (env as any).VECTORIZE.upsert([{ id: entryId, values, metadata }]);
-  return {
-    id: entryId,
-    category: params.category,
-    key: params.key
-  };
-}
-
-export async function upsertStructuredMemories(
-  env: Env,
-  userId: string,
-  memories: Array<{
-    category: MemoryCategory;
-    key: string;
-    value: string;
-    importance?: number;
-  }>,
-  sourceDate?: string
-) {
-  const results = [];
-  for (const mem of memories) {
-    try {
-      const result = await upsertStructuredMemory(env, {
-        userId,
-        category: mem.category,
-        key: mem.key,
-        value: mem.value,
-        importance: mem.importance,
-        sourceDate
-      });
-      if (result) {
-        results.push(result);
-      }
-    } catch (error) {
-      console.warn('[ATRI] Failed to upsert structured memory:', mem.key, error);
-    }
-  }
-  return results;
-}
-
-function simpleHash(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return Math.abs(hash).toString(36);
 }

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -80,13 +82,46 @@ fun DiaryScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(padding),
+                        .padding(padding)
+                        .padding(horizontal = 32.dp),
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("还没有可展示的日记", style = MaterialTheme.typography.titleMedium)
+                    Box(
+                        modifier = Modifier
+                            .size(120.dp)
+                            .clip(RoundedCornerShape(60.dp))
+                            .background(
+                                Brush.radialGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.04f)
+                                    )
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Edit,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Text(
+                        text = "还没有日记",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("和 ATRI 多聊聊天，她就会开始记日记啦", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        text = "和 ATRI 聊聊天吧，她会在每天结束时\n把今天的故事写进日记里",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 1.4
+                    )
                 }
             }
 

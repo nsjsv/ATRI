@@ -2,10 +2,14 @@ import type { Router } from 'itty-router';
 import { Env, RouterRequest } from '../types';
 import { jsonResponse } from '../utils/json-response';
 import { buildPublicUrl, sanitizeFileName } from '../utils/file';
+import { requireAppToken } from '../utils/auth';
 
 export function registerMediaRoutes(router: Router) {
   router.post('/upload', async (request: RouterRequest, env: Env) => {
     try {
+      const auth = requireAppToken(request, env);
+      if (auth) return auth;
+
       if (!request.body) {
         return jsonResponse({ error: 'Missing file body' }, 400);
       }

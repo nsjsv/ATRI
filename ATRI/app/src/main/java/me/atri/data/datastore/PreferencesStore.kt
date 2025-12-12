@@ -21,6 +21,7 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
         private val IS_FIRST_LAUNCH = booleanPreferencesKey("is_first_launch")
         private val API_URL = stringPreferencesKey("api_url")
         private val API_KEY = stringPreferencesKey("api_key")
+        private val APP_TOKEN = stringPreferencesKey("app_token")
         private val MODEL_NAME = stringPreferencesKey("model_name")
         private val ATRI_AVATAR_PATH = stringPreferencesKey("atri_avatar_path")
         private val LAST_CHAT_DATE = stringPreferencesKey("last_chat_date")
@@ -31,8 +32,9 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
     val userBirthday: Flow<String> = dataStore.data.map { it[USER_BIRTHDAY] ?: "" }
     val intimacyPoints: Flow<Int> = dataStore.data.map { it[INTIMACY_POINTS] ?: 0 }
     val isFirstLaunch: Flow<Boolean> = dataStore.data.map { it[IS_FIRST_LAUNCH] ?: true }
-    val apiUrl: Flow<String> = dataStore.data.map { it[API_URL] ?: "https://your-worker.example.com" }
+    val apiUrl: Flow<String> = dataStore.data.map { it[API_URL] ?: "https://your-worker-domain.workers.dev" }
     val apiKey: Flow<String> = dataStore.data.map { it[API_KEY] ?: "" }
+    val appToken: Flow<String> = dataStore.data.map { it[APP_TOKEN] ?: "" }
     val modelName: Flow<String> = dataStore.data.map { it[MODEL_NAME] ?: "anthropic.claude-sonnet-4" }
     val atriAvatarPath: Flow<String> = dataStore.data.map { it[ATRI_AVATAR_PATH] ?: "" }
     val lastConversationDate: Flow<String> = dataStore.data.map { it[LAST_CHAT_DATE] ?: "" }
@@ -75,6 +77,10 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
             it[API_KEY] = key
             it[MODEL_NAME] = model
         }
+    }
+
+    suspend fun setAppToken(token: String) {
+        dataStore.edit { it[APP_TOKEN] = token }
     }
 
     suspend fun setModelName(model: String) {

@@ -1,28 +1,34 @@
 name = "atri-worker"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
-account_id = "YOUR_ACCOUNT_ID"
+# account_id 不是必填项，登录后 Wrangler 会自动识别你的账号。
+# 如果你有多个 Cloudflare 账号，再手动填写自己的 account_id。
+# account_id = "your-account-id"
 
 [vars]
 OPENAI_API_URL = "https://api.openai.com/v1"
+
+DIARY_API_URL = "https://api.openai.com/v1"
+
+DIARY_MODEL = "gpt-4"  
 EMBEDDINGS_API_URL = "https://api.openai.com/v1"
-EMBEDDINGS_MODEL = "text-embedding-3-large"
+EMBEDDINGS_MODEL = "BAAI/bge-m3"
 
 [[vectorize]]
 binding = "VECTORIZE"
-index_name = "your-vector-index"
+index_name = "atri-memories"
 
 [[r2_buckets]]
 binding = "MEDIA_BUCKET"
-bucket_name = "your-media-bucket"
-preview_bucket_name = "your-media-bucket"
+bucket_name = "atri-media"
+preview_bucket_name = "atri-media"
 
 [[d1_databases]]
 binding = "ATRI_DB"
 database_name = "atri_diary"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "your-d1-id"
 
 [triggers]
 crons = ["59 15 * * *"]
 
-# 如需绑定自定义域名，请在 Cloudflare Dashboard 中为 atri-worker 新增 Domains & Routes 记录。
+# 如需使用自己的上游/域名，请在 Cloudflare 后台自行配置。

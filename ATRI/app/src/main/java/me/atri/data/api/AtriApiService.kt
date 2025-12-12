@@ -6,6 +6,7 @@ import me.atri.data.api.request.ConversationLogRequest
 import me.atri.data.api.response.DiaryEntryResponse
 import me.atri.data.api.response.DiaryListResponse
 import me.atri.data.api.response.LastConversationResponse
+import me.atri.data.api.response.BioChatResponse
 import me.atri.data.api.response.ModelListResponse
 import me.atri.data.api.response.UploadResponse
 import okhttp3.RequestBody
@@ -15,23 +16,18 @@ import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
-import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.http.Streaming
 
 interface AtriApiService {
-    @Streaming
-    @POST("/chat")
-    suspend fun sendMessage(@Body request: ChatRequest): Response<ResponseBody>
+    @POST("/api/v1/chat")
+    suspend fun sendBioMessage(@Body request: ChatRequest): Response<BioChatResponse>
 
     @POST("/conversation/log")
     suspend fun logConversation(@Body request: ConversationLogRequest): Response<ResponseBody>
 
     @POST("/conversation/delete")
     suspend fun deleteConversationLogs(@Body request: ConversationDeleteRequest): Response<ResponseBody>
-
-    @GET("/status/{userId}")
-    suspend fun getStatus(@Path("userId") userId: String): Response<ResponseBody>
 
     @Streaming
     @POST("/upload")

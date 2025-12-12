@@ -23,6 +23,7 @@ ATRI/build/
 # 构建产物
 build/
 dist/
+!dist/ATRI.apk
 
 # 环境变量与密钥
 .env
@@ -41,4 +42,5 @@ ATRI/.kotlin/
 
 # 个人脚本和临时文件
 *.bat
+!scripts/deploy_cf.bat
 *副本*

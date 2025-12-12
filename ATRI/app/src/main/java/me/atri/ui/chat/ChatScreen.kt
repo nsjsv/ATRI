@@ -561,7 +561,7 @@ fun ChatScreen(
                                     }
                                     MessageBubble(
                                         message = item.message,
-                                        isLoading = uiState.isLoading && uiState.generatingMessage?.id == item.message.id,
+                                        isLoading = false,
                                         onLongPress = { pressed ->
                                             val anchor = listBounds?.let { bounds ->
                                                 val info = listState.layoutInfo.visibleItemsInfo
@@ -584,7 +584,7 @@ fun ChatScreen(
                                 }
                             }
                         }
-                        if (uiState.isLoading && uiState.generatingMessage == null) {
+                        if (uiState.isLoading) {
                             item { TypingIndicator() }
                         }
                     }

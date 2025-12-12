@@ -6,11 +6,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.longOrNull
 import me.atri.data.api.AtriApiService
 import me.atri.data.api.request.ChatRequest
 import me.atri.data.api.request.ConversationDeleteRequest
@@ -36,7 +31,13 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import me.atri.data.model.LastConversationInfo
-import me.atri.utils.EmojiAssets
+import me.atri.data.api.response.BioChatResponse
+
+data class ChatResult(
+    val reply: String,
+    val mood: BioChatResponse.Mood?,
+    val intimacy: Int
+)
 
 class ChatRepository(
     private val messageDao: MessageDao,
@@ -46,8 +47,6 @@ class ChatRepository(
     private val memoryDao: me.atri.data.db.dao.MemoryDao,
     private val context: Context
 ) {
-    private val json = Json { ignoreUnknownKeys = true }
-    private val streamCollector = StreamCollector(json) { cleanTimestampPrefix(it) }
     companion object {
         // 与 worker/src/index.ts 中的 TIMESTAMP 前缀清理逻辑保持一致
         private val ATRI_TIMESTAMP_PREFIX_REGEX = Regex(
@@ -58,7 +57,6 @@ class ChatRepository(
             pattern = "^\\[[^]]+\\]\\s*",
             options = setOf(RegexOption.MULTILINE)
         )
-        private val EMOJI_PATTERN = Regex("\\[\\[EMOJI:([^\\]]+)]]")
     }
 
     fun observeMessages(): Flow<List<MessageEntity>> = messageDao.observeAll()
@@ -70,9 +68,8 @@ class ChatRepository(
         content: String,
         attachments: List<PendingAttachment>,
         reusedAttachments: List<Attachment> = emptyList(),
-        onUserMessagePrepared: (MessageEntity) -> Unit = {},
-        onStreamResponse: suspend (String, String?, Long?, Long?) -> Unit
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+        onUserMessagePrepared: (MessageEntity) -> Unit = {}
+    ): Result<ChatResult> = withContext(Dispatchers.IO) {
         try {
             val userId = preferencesStore.ensureUserId()
             val userNameForLog = preferencesStore.userName.first().takeIf { it.isNotBlank() }
@@ -101,7 +98,7 @@ class ChatRepository(
                 attachments = finalUserAttachments
             )
 
-            val recentAll = messageDao.getRecentMessages(20).sortedBy { it.timestamp }
+            val recentAll = messageDao.getAllMessages()
             val recentMessages = if (recentAll.isNotEmpty()) recentAll.dropLast(1) else recentAll
             val request = buildChatRequest(
                 userId = userId,
@@ -110,8 +107,8 @@ class ChatRepository(
                 recentMessages = recentMessages
             )
 
-            executeChatRequest(request, onStreamResponse)
-            Result.success(Unit)
+            val chatResult = executeChatRequest(request)
+            Result.success(chatResult)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -120,14 +117,13 @@ class ChatRepository(
     }
 
     suspend fun regenerateResponse(
-        onStreamResponse: suspend (String, String?, Long?, Long?) -> Unit,
         contextMessages: List<MessageEntity>? = null,
         userContent: String? = null,
         userAttachments: List<Attachment>? = null
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+    ): Result<ChatResult> = withContext(Dispatchers.IO) {
         try {
             val userId = preferencesStore.ensureUserId()
-            val recentMessages = contextMessages ?: messageDao.getRecentMessages(20).sortedBy { it.timestamp }
+            val recentMessages = contextMessages ?: messageDao.getAllMessages()
             val lastUserMessage = recentMessages.lastOrNull { !it.isFromAtri }
 
             val finalContent = userContent ?: lastUserMessage?.content
@@ -141,8 +137,8 @@ class ChatRepository(
                 recentMessages = recentMessages
             )
 
-            executeChatRequest(request, onStreamResponse)
-            Result.success(Unit)
+            val chatResult = executeChatRequest(request)
+            Result.success(chatResult)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -150,13 +146,9 @@ class ChatRepository(
 
     suspend fun persistAtriMessage(finalMessage: MessageEntity) = withContext(Dispatchers.IO) {
         val cleanedContent = cleanTimestampPrefix(finalMessage.content)
-        val (contentWithoutEmoji, attachmentsWithEmoji) = extractEmojiAttachmentsFromContent(
-            originalContent = cleanedContent,
-            existingAttachments = finalMessage.attachments
-        )
         val sanitized = finalMessage.copy(
-            content = contentWithoutEmoji,
-            attachments = attachmentsWithEmoji
+            content = cleanedContent,
+            attachments = finalMessage.attachments
         )
         val existing = messageDao.getMessageById(sanitized.id)
 
@@ -188,28 +180,6 @@ class ChatRepository(
         )
     }
 
-    private fun extractEmojiAttachmentsFromContent(
-        originalContent: String,
-        existingAttachments: List<Attachment>
-    ): Pair<String, List<Attachment>> {
-        val emojiAttachments = mutableListOf<Attachment>()
-        val existingKeys = existingAttachments.associateBy { "${it.type}:${it.url}" }.toMutableMap()
-
-        for (match in EMOJI_PATTERN.findAll(originalContent)) {
-            val name = match.groupValues.getOrNull(1)?.trim().orEmpty()
-            if (name.isEmpty()) continue
-            val attachment = EmojiAssets.createEmojiAttachmentOrNull(name) ?: continue
-            val key = "${attachment.type}:${attachment.url}"
-            if (!existingKeys.containsKey(key)) {
-                existingKeys[key] = attachment
-                emojiAttachments.add(attachment)
-            }
-        }
-
-        val cleanText = EMOJI_PATTERN.replace(originalContent, "").trim()
-        val mergedAttachments = mergeAttachmentLists(existingAttachments, emojiAttachments)
-        return cleanText to mergedAttachments
-    }
     suspend fun editMessage(
         id: String,
         newContent: String,
@@ -375,8 +345,7 @@ class ChatRepository(
         val ensuredUserId = userId ?: preferencesStore.ensureUserId()
         val userName = preferencesStore.userName.first()
         val preferredModel = preferencesStore.modelName.first().takeIf { it.isNotBlank() }
-        val messageCount = messageDao.getMessageCount()
-        val requestContent = augmentContentWithDayContext(content)
+        val requestContent = content
         val compatImage = attachments.firstOrNull { it.type == AttachmentType.IMAGE }?.url
 
         return ChatRequest(
@@ -385,95 +354,27 @@ class ChatRepository(
             imageUrl = compatImage,
             attachments = attachments.map { it.toPayload() },
             recentMessages = recentMessages.map { it.toMessageContext() },
-            currentStage = calculateStage(messageCount),
             userName = userName.takeIf { it.isNotBlank() },
             clientTimeIso = currentClientTimeIso(),
             modelKey = preferredModel
         )
     }
 
-    private suspend fun executeChatRequest(
-        request: ChatRequest,
-        onStreamResponse: suspend (String, String?, Long?, Long?) -> Unit
-    ) {
-        val response = apiService.sendMessage(request)
-        if (response.isSuccessful) {
-            streamCollector.collect(response.body(), onStreamResponse)
-        } else {
+    private suspend fun executeChatRequest(request: ChatRequest): ChatResult {
+        val response = apiService.sendBioMessage(request)
+        if (!response.isSuccessful) {
             throw Exception("API Error: ${response.code()}")
         }
-    }
-
-    private fun calculateStage(messageCount: Int): Int = when {
-        messageCount < 80 -> 1      // 阶段1：初遇（1-80条，约3-4天）
-        messageCount < 200 -> 2     // 阶段2：熟识（81-200条，约7-10天）
-        messageCount < 400 -> 3     // 阶段3：亲近（201-400条，约2-3周）
-        messageCount < 700 -> 4     // 阶段4：心动（401-700条，约1个月）
-        else -> 5                   // 阶段5：挚爱（700+条，长期陪伴）
-    }
-
-    // 问时即取：当用户问“昨天/前天/某日我说了什么”时，自动附带当日消息记录
-    private suspend fun augmentContentWithDayContext(originalContent: String): String {
-        val zone = java.time.ZoneId.systemDefault()
-        val day = detectDayQuery(originalContent, zone) ?: return originalContent
-        val messages = messageDao.getMessagesInRange(day.startMs, day.endMs)
-        val userOnly = messages.filterNot { it.isFromAtri }
-        if (userOnly.isEmpty()) return originalContent
-
-        val timeFormatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")
-        val historyLines = userOnly.joinToString("\n") { message ->
-            val timeText = java.time.Instant.ofEpochMilli(message.timestamp)
-                .atZone(zone)
-                .toLocalTime()
-                .format(timeFormatter)
-            "[$timeText 你] ${message.content}"
+        val body = response.body()
+        val reply = body?.reply?.trim().orEmpty()
+        if (reply.isEmpty()) {
+            throw Exception("空回复")
         }
-        val prefix = "以下是你在${day.humanLabel}的发言记录（时间升序，仅用户消息）：\n"
-        return prefix + historyLines + "\n\n问题：" + originalContent
-    }
-
-    private data class DayRange(val startMs: Long, val endMs: Long, val humanLabel: String)
-
-    private fun detectDayQuery(text: String, zone: java.time.ZoneId): DayRange? {
-        val lower = text.lowercase()
-        val today = java.time.LocalDate.now(zone)
-
-        val day: java.time.LocalDate? = when {
-            "昨天" in lower -> today.minusDays(1)
-            "前天" in lower -> today.minusDays(2)
-            "今天" in lower -> today
-            else -> {
-                val ymd = Regex("(\\d{4})-(\\d{1,2})-(\\d{1,2})").find(text)?.let {
-                    val (y, m, d) = it.destructured
-                    runCatching { java.time.LocalDate.of(y.toInt(), m.toInt(), d.toInt()) }.getOrNull()
-                }
-                ymd ?: run {
-                    val ymdCn = Regex("(\\d{4})年(\\d{1,2})月(\\d{1,2})日").find(text)?.let {
-                        val (y, m, d) = it.destructured
-                        runCatching { java.time.LocalDate.of(y.toInt(), m.toInt(), d.toInt()) }.getOrNull()
-                    }
-                    ymdCn ?: run {
-                        val mdCn = Regex("(\\d{1,2})月(\\d{1,2})日").find(text)?.let {
-                            val (m, d) = it.destructured
-                            runCatching { java.time.LocalDate.of(today.year, m.toInt(), d.toInt()) }.getOrNull()
-                        }
-                        mdCn
-                    }
-                }
-            }
-        }
-
-        day ?: return null
-        val startMs = day.atStartOfDay(zone).toInstant().toEpochMilli()
-        val endMs = day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
-
-        val humanLabel = when (day) {
-            today -> "今天"
-            today.minusDays(1) -> "昨天"
-            today.minusDays(2) -> "前天"
-            else -> day.toString()
-        }
-        return DayRange(startMs, endMs, humanLabel)
+        return ChatResult(
+            reply = reply,
+            mood = body?.mood,
+            intimacy = body?.intimacy ?: 0
+        )
     }
 
     private fun currentClientTimeIso(): String =
@@ -485,9 +386,10 @@ class ChatRepository(
             content = cleanTimestampPrefix(content),
             isFromAtri = isFromAtri,
             timestampMs = timestamp,
-            attachments = attachments.map { attachment ->
-                attachment.toPayload()
-            }
+            // 历史消息不携带图片附件，只保留非图片的附件（如文档）
+            attachments = attachments
+                .filter { it.type != AttachmentType.IMAGE }
+                .map { attachment -> attachment.toPayload() }
         )
     private fun cleanTimestampPrefix(content: String): String {
         // 清理形如 [2025-11-11T14:06:12.034Z ATRI] 的前缀，与 worker 的正则保持一致
@@ -518,7 +420,7 @@ class ChatRepository(
             )
             if (!response.isSuccessful) {
                 val errorBody = response.errorBody()?.string()
-                throw IllegalStateException("涓婁紶闄勪欢澶辫触: ${response.code()} $errorBody")
+                throw IllegalStateException("上传附件失败: ${response.code()} $errorBody")
             }
             val payload = response.body() ?: throw IllegalStateException("上传附件失败：响应为空")
             result.add(
@@ -595,7 +497,7 @@ class ChatRepository(
             context.contentResolver.openInputStream(uri)?.use { input ->
                 val source = input.source().buffer()
                 sink.writeAll(source)
-            } ?: throw IllegalStateException("鏃犳硶鎵撳紑闄勪欢锛?uri")
+            } ?: throw IllegalStateException("无法打开附件: $uri")
         }
     }
     private fun mergeAttachmentLists(

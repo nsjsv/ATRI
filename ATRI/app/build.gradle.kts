@@ -123,15 +123,3 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 
-val sharedPromptsFile = rootDir.parentFile.resolve("shared/prompts.json")
-val androidAssetsDir = projectDir.resolve("src/main/assets").apply { mkdirs() }
-
-tasks.register<Copy>("syncPrompts") {
-    from(sharedPromptsFile)
-    into(androidAssetsDir)
-    rename { "prompts.json" }
-}
-
-tasks.named("preBuild") {
-    dependsOn("syncPrompts")
-}

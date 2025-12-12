@@ -20,8 +20,19 @@ val networkModule = module {
             level = HttpLoggingInterceptor.Level.BASIC
         }
 
+        val preferencesStore = get<PreferencesStore>()
+
         OkHttpClient.Builder()
             .addInterceptor(logging)
+            .addInterceptor { chain ->
+                val token = runBlocking { preferencesStore.appToken.first() }.trim()
+                val request = if (token.isNotEmpty()) {
+                    chain.request().newBuilder()
+                        .addHeader("X-App-Token", token)
+                        .build()
+                } else chain.request()
+                chain.proceed(request)
+            }
             .connectTimeout(60, TimeUnit.SECONDS)
             .readTimeout(180, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
@@ -31,7 +42,7 @@ val networkModule = module {
     single {
         val preferencesStore = get<PreferencesStore>()
         val baseUrl = runBlocking { preferencesStore.apiUrl.first() }
-            .ifEmpty { "https://your-worker.example.com" }
+            .ifEmpty { "https://your-worker-domain.workers.dev" }
 
         val json = Json {
             ignoreUnknownKeys = true

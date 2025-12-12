@@ -9,12 +9,16 @@ import {
   deleteConversationLogsByIds
 } from '../services/data-service';
 import { DEFAULT_TIMEZONE, formatDateInZone } from '../utils/date';
+import { requireAppToken } from '../utils/auth';
 
 const VALID_ROLES = new Set(['user', 'atri']);
 
 export function registerConversationRoutes(router: Router) {
   router.post('/conversation/log', async (request: Request, env: Env) => {
     try {
+      const auth = requireAppToken(request, env);
+      if (auth) return auth;
+
       const body = await request.json();
       const userId = String(body.userId || '').trim();
       const role = String(body.role || '').trim();
@@ -48,6 +52,9 @@ export function registerConversationRoutes(router: Router) {
 
   router.post('/conversation/delete', async (request: Request, env: Env) => {
     try {
+      const auth = requireAppToken(request, env);
+      if (auth) return auth;
+
       const body = await request.json();
       const userId = String(body.userId || '').trim();
       const ids = Array.isArray(body.ids)
@@ -68,6 +75,9 @@ export function registerConversationRoutes(router: Router) {
   });
 
   router.get('/conversation/last', async (request: Request, env: Env) => {
+    const auth = requireAppToken(request, env);
+    if (auth) return auth;
+
     const { searchParams } = new URL(request.url);
     const userId = (searchParams.get('userId') || '').trim();
     const timeZone = (searchParams.get('timeZone') || DEFAULT_TIMEZONE).trim();

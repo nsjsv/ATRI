@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -16,6 +17,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -208,54 +212,66 @@ fun MessageBubble(
                             }
 
                             Surface(
-                                shape = MaterialTheme.shapes.extraSmall,
+                                shape = RoundedCornerShape(12.dp),
                                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(0.dp),
+                                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)
                                 ) {
-                                    IconButton(
+                                    val canPrev = message.currentVersionIndex > 0
+                                    val canNext = message.currentVersionIndex < message.totalVersions - 1
+
+                                    Surface(
                                         onClick = {
-                                            val prevIndex = (message.currentVersionIndex - 1)
-                                                .coerceIn(0, message.totalVersions - 1)
-                                            onVersionSwitch(message.id, prevIndex)
+                                            if (canPrev) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                onVersionSwitch(message.id, message.currentVersionIndex - 1)
+                                            }
                                         },
-                                        enabled = message.currentVersionIndex > 0,
-                                        modifier = Modifier.size(20.dp)
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (canPrev) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent,
+                                        modifier = Modifier.size(28.dp)
                                     ) {
-                                        Text(
-                                            text = "〈",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = if (message.currentVersionIndex > 0)
-                                                MaterialTheme.colorScheme.primary
-                                            else
-                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                                        )
+                                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                                contentDescription = "上一版本",
+                                                modifier = Modifier.size(18.dp),
+                                                tint = if (canPrev) MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                            )
+                                        }
                                     }
+
                                     Text(
                                         text = "${message.currentVersionIndex + 1}/${message.totalVersions}",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 4.dp)
                                     )
-                                    IconButton(
+
+                                    Surface(
                                         onClick = {
-                                            val nextIndex = (message.currentVersionIndex + 1)
-                                                .coerceIn(0, message.totalVersions - 1)
-                                            onVersionSwitch(message.id, nextIndex)
+                                            if (canNext) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                onVersionSwitch(message.id, message.currentVersionIndex + 1)
+                                            }
                                         },
-                                        enabled = message.currentVersionIndex < message.totalVersions - 1,
-                                        modifier = Modifier.size(20.dp)
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (canNext) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent,
+                                        modifier = Modifier.size(28.dp)
                                     ) {
-                                        Text(
-                                            text = "〉",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = if (message.currentVersionIndex < message.totalVersions - 1)
-                                                MaterialTheme.colorScheme.primary
-                                            else
-                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                                        )
+                                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                                contentDescription = "下一版本",
+                                                modifier = Modifier.size(18.dp),
+                                                tint = if (canNext) MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                            )
+                                        }
                                     }
                                 }
                             }

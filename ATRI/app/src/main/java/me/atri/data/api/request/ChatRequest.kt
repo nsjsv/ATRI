@@ -9,7 +9,6 @@ data class ChatRequest(
     val imageUrl: String? = null,
     val attachments: List<AttachmentPayload> = emptyList(),
     val recentMessages: List<MessageContext>,
-    val currentStage: Int,
     // 新增：默认注入用户名称与客户端本地时间（到秒，含时区）
     val userName: String? = null,
     val clientTimeIso: String? = null,

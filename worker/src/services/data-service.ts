@@ -39,39 +39,29 @@ export type DiaryEntryRecord = {
   updatedAt: number;
 };
 
-export type DailyLearningRecord = {
-  id: string;
+export type UserSettingsRecord = {
   userId: string;
-  date: string;
-  summary?: string;
-  payload?: string;
+  modelKey?: string | null;
   createdAt: number;
   updatedAt: number;
 };
 
-export type MemoryCategory = 'user_fact' | 'user_preference' | 'relationship' | 'taboo' | 'atri_growth';
-
-export type UserMemoryRecord = {
-  id: string;
+export type UserProfileRecord = {
   userId: string;
-  category: MemoryCategory;
-  key: string;
-  value: string;
-  importance: number;
-  evidence?: string;
-  sourceDate?: string;
+  content?: string | null;
   createdAt: number;
   updatedAt: number;
 };
 
-export type UserMemoryInput = {
+export type PadValues = [number, number, number];
+
+export type UserStateRecord = {
   userId: string;
-  category: MemoryCategory;
-  key: string;
-  value: string;
-  importance?: number;
-  evidence?: string;
-  sourceDate?: string;
+  padValues: PadValues;
+  intimacy: number;
+  energy: number;
+  lastInteractionAt: number;
+  updatedAt: number;
 };
 
 export async function saveConversationLog(env: Env, payload: ConversationLogInput) {
@@ -215,7 +205,7 @@ export async function saveDiaryEntry(
 ) {
   const now = Date.now();
   const id = `diary:${entry.userId}:${entry.date}`;
-  const summary = entry.summary ?? entry.content.slice(0, 80);
+  const summary = entry.summary ?? entry.content;
   const status = entry.status ?? 'ready';
 
   await env.ATRI_DB.prepare(
@@ -247,44 +237,182 @@ export async function listDiaryEntries(env: Env, userId: string, limit = 7) {
   return result.results || [];
 }
 
-export async function saveDailyLearning(
-  env: Env,
-  record: {
-    userId: string;
-    date: string;
-    summary?: string;
-    payload?: string;
-  }
-) {
-  const now = Date.now();
-  const id = `learn:${record.userId}:${record.date}`;
-
-  await env.ATRI_DB.prepare(
-    `INSERT INTO daily_learning (id, user_id, date, summary, payload, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       summary = excluded.summary,
-       payload = excluded.payload,
-       updated_at = excluded.updated_at`
+export async function getUserModelPreference(env: Env, userId: string): Promise<string | null> {
+  const row = await env.ATRI_DB.prepare(
+    `SELECT model_key as modelKey
+     FROM user_settings
+     WHERE user_id = ?`
   )
-    .bind(id, record.userId, record.date, record.summary ?? null, record.payload ?? null, now, now)
-    .run();
+    .bind(userId)
+    .first<{ modelKey?: string }>();
 
-  return { id, summary: record.summary };
+  const trimmed = (row?.modelKey || '').trim();
+  return trimmed ? trimmed : null;
 }
 
-export async function getRecentDailyLearnings(env: Env, userId: string, limit = 3) {
-  const result = await env.ATRI_DB.prepare(
-    `SELECT id, user_id as userId, date, summary, payload, created_at as createdAt, updated_at as updatedAt
-     FROM daily_learning
-     WHERE user_id = ?
-     ORDER BY date DESC
-     LIMIT ?`
+export async function saveUserModelPreference(env: Env, userId: string, modelKey: string) {
+  const trimmed = (modelKey || '').trim();
+  if (!trimmed) {
+    return;
+  }
+  const now = Date.now();
+  await env.ATRI_DB.prepare(
+    `INSERT INTO user_settings (user_id, model_key, created_at, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       model_key = excluded.model_key,
+       updated_at = excluded.updated_at`
   )
-    .bind(userId, Math.max(1, Math.min(limit, 10)))
-    .all<DailyLearningRecord>();
+    .bind(userId, trimmed, now, now)
+    .run();
+}
 
-  return result.results || [];
+export async function getUserProfile(env: Env, userId: string): Promise<UserProfileRecord | null> {
+  const row = await env.ATRI_DB.prepare(
+    `SELECT user_id as userId, content, created_at as createdAt, updated_at as updatedAt
+     FROM user_profiles
+     WHERE user_id = ?`
+  )
+    .bind(userId)
+    .first<UserProfileRecord>();
+  return row ?? null;
+}
+
+export async function saveUserProfile(env: Env, params: {
+  userId: string;
+  content: string;
+}) {
+  const now = Date.now();
+  const cleaned = (params.content || '').trim();
+  await env.ATRI_DB.prepare(
+    `INSERT INTO user_profiles (user_id, content, created_at, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       content = excluded.content,
+       updated_at = excluded.updated_at`
+  )
+    .bind(params.userId, cleaned, now, now)
+    .run();
+  return { userId: params.userId, updatedAt: now };
+}
+
+export async function deleteUserSettingsByUser(env: Env, userId: string) {
+  const result = await env.ATRI_DB.prepare(
+    `DELETE FROM user_settings WHERE user_id = ?`
+  )
+    .bind(userId)
+    .run();
+  return Number(result?.meta?.changes ?? 0);
+}
+
+export async function getUserState(env: Env, userId: string): Promise<UserStateRecord> {
+  const row = await env.ATRI_DB.prepare(
+    `SELECT user_id as userId, pad_values as padValues, intimacy, energy, last_interaction_at as lastInteractionAt, updated_at as updatedAt
+     FROM user_states
+     WHERE user_id = ?`
+  )
+    .bind(userId)
+    .first<{
+      userId: string;
+      padValues: string;
+      intimacy?: number;
+      energy?: number;
+      lastInteractionAt?: number;
+      updatedAt?: number;
+    }>();
+
+  const now = Date.now();
+  if (!row) {
+    return {
+      userId,
+      padValues: [...DEFAULT_PAD_VALUES],
+      intimacy: 0,
+      energy: 100,
+      lastInteractionAt: now,
+      updatedAt: now
+    };
+  }
+
+  const rawPad = parsePadValues(row.padValues);
+  const lastInteraction = Number.isFinite(row.lastInteractionAt) ? Number(row.lastInteractionAt) : now;
+  const decayedPad = applyMoodDecay(rawPad, lastInteraction, now);
+
+  return {
+    userId: row.userId || userId,
+    padValues: decayedPad,
+    intimacy: Number.isFinite(row.intimacy) ? Number(row.intimacy) : 0,
+    energy: Number.isFinite(row.energy) ? Number(row.energy) : 100,
+    lastInteractionAt: lastInteraction,
+    updatedAt: Number.isFinite(row.updatedAt) ? Number(row.updatedAt) : now
+  };
+}
+
+function applyMoodDecay(pad: PadValues, lastInteractionAt: number, now: number): PadValues {
+  const hoursSince = (now - lastInteractionAt) / 3600000;
+  if (hoursSince < 0.5) return pad;
+
+  const decayRate = 0.92;
+  const cappedHours = Math.min(hoursSince, 48);
+  const factor = Math.pow(decayRate, cappedHours);
+
+  return [
+    clampPad(pad[0] * factor),
+    clampPad(pad[1] * factor),
+    clampPad(pad[2] * factor)
+  ];
+}
+
+export async function saveUserState(env: Env, state: UserStateRecord) {
+  const payload = normalizeUserState(state);
+  await env.ATRI_DB.prepare(
+    `INSERT INTO user_states (user_id, pad_values, intimacy, energy, last_interaction_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       pad_values = excluded.pad_values,
+       intimacy = excluded.intimacy,
+       energy = excluded.energy,
+       last_interaction_at = excluded.last_interaction_at,
+       updated_at = excluded.updated_at`
+  )
+    .bind(
+      payload.userId,
+      JSON.stringify(payload.padValues),
+      payload.intimacy,
+      payload.energy,
+      payload.lastInteractionAt,
+      payload.updatedAt
+    )
+    .run();
+}
+
+export async function updateMoodState(env: Env, params: {
+  userId: string;
+  pleasureDelta: number;
+  arousalDelta: number;
+  dominanceDelta?: number;
+  touchedAt?: number;
+  reason?: string;
+}) {
+  const current = await getUserState(env, params.userId);
+  const now = typeof params.touchedAt === 'number' ? params.touchedAt : Date.now();
+  const nextPad: PadValues = [
+    clampPad(current.padValues[0] + safeNumber(params.pleasureDelta)),
+    clampPad(current.padValues[1] + safeNumber(params.arousalDelta)),
+    clampPad(current.padValues[2] + safeNumber(params.dominanceDelta))
+  ];
+
+  const next: UserStateRecord = {
+    ...current,
+    padValues: nextPad,
+    lastInteractionAt: now,
+    updatedAt: now
+  };
+
+  await saveUserState(env, next);
+  if (params.reason) {
+    console.log('[ATRI] mood updated', { userId: params.userId, padValues: nextPad, reason: params.reason });
+  }
+  return next;
 }
 
 function parseJson(value: any) {
@@ -350,100 +478,48 @@ export async function deleteConversationLogsByIds(env: Env, userId: string, ids:
   return Number(result?.meta?.changes ?? 0);
 }
 
-export async function saveUserMemory(env: Env, input: UserMemoryInput) {
+const DEFAULT_PAD_VALUES: PadValues = [0.2, 0.3, 0];
+
+function parsePadValues(value: string | null | undefined): PadValues {
+  if (!value) {
+    return [...DEFAULT_PAD_VALUES];
+  }
+  try {
+    const arr = JSON.parse(value);
+    if (Array.isArray(arr) && arr.length === 3) {
+      return [
+        clampPad(Number(arr[0] ?? 0)),
+        clampPad(Number(arr[1] ?? 0)),
+        clampPad(Number(arr[2] ?? 0))
+      ];
+    }
+  } catch (error) {
+    console.warn('[ATRI] parsePadValues failed', error);
+  }
+  return [...DEFAULT_PAD_VALUES];
+}
+
+function clampPad(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(-1, Math.min(1, value));
+}
+
+function safeNumber(value: any) {
+  return Number.isFinite(value) ? Number(value) : 0;
+}
+
+function normalizeUserState(state: UserStateRecord): UserStateRecord {
   const now = Date.now();
-  const id = `mem:${input.userId}:${input.category}:${hashKey(input.key)}`;
-  const importance = input.importance ?? 5;
-
-  await env.ATRI_DB.prepare(
-    `INSERT INTO user_memories (id, user_id, category, key, value, importance, evidence, source_date, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       value = excluded.value,
-       importance = MAX(user_memories.importance, excluded.importance),
-       evidence = COALESCE(excluded.evidence, user_memories.evidence),
-       source_date = excluded.source_date,
-       updated_at = excluded.updated_at`
-  )
-    .bind(
-      id,
-      input.userId,
-      input.category,
-      input.key,
-      input.value,
-      importance,
-      input.evidence ?? null,
-      input.sourceDate ?? null,
-      now,
-      now
-    )
-    .run();
-
-  return { id, key: input.key, category: input.category };
-}
-
-export async function saveUserMemories(env: Env, inputs: UserMemoryInput[]) {
-  const results = [];
-  for (const input of inputs) {
-    const result = await saveUserMemory(env, input);
-    results.push(result);
-  }
-  return results;
-}
-
-export async function getUserMemories(
-  env: Env,
-  userId: string,
-  options?: { category?: MemoryCategory; limit?: number }
-): Promise<UserMemoryRecord[]> {
-  const category = options?.category;
-  const limit = options?.limit ?? 20;
-
-  let sql = `SELECT id, user_id as userId, category, key, value, importance, evidence, source_date as sourceDate, created_at as createdAt, updated_at as updatedAt
-     FROM user_memories
-     WHERE user_id = ?`;
-  const bindings: any[] = [userId];
-
-  if (category) {
-    sql += ` AND category = ?`;
-    bindings.push(category);
-  }
-
-  sql += ` ORDER BY importance DESC, updated_at DESC LIMIT ?`;
-  bindings.push(limit);
-
-  const result = await env.ATRI_DB.prepare(sql).bind(...bindings).all<UserMemoryRecord>();
-  return result.results || [];
-}
-
-export async function getTopUserMemories(env: Env, userId: string, limit = 10): Promise<UserMemoryRecord[]> {
-  const result = await env.ATRI_DB.prepare(
-    `SELECT id, user_id as userId, category, key, value, importance, evidence, source_date as sourceDate, created_at as createdAt, updated_at as updatedAt
-     FROM user_memories
-     WHERE user_id = ?
-     ORDER BY importance DESC, updated_at DESC
-     LIMIT ?`
-  )
-    .bind(userId, limit)
-    .all<UserMemoryRecord>();
-  return result.results || [];
-}
-
-export async function deleteUserMemoriesByUser(env: Env, userId: string) {
-  const result = await env.ATRI_DB.prepare(
-    `DELETE FROM user_memories WHERE user_id = ?`
-  )
-    .bind(userId)
-    .run();
-  return Number(result?.meta?.changes ?? 0);
-}
-
-function hashKey(key: string): string {
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) {
-    const char = key.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return Math.abs(hash).toString(36);
+  return {
+    userId: state.userId,
+    padValues: [
+      clampPad(state.padValues?.[0] ?? 0),
+      clampPad(state.padValues?.[1] ?? 0),
+      clampPad(state.padValues?.[2] ?? 0)
+    ],
+    intimacy: Number.isFinite(state.intimacy) ? Number(state.intimacy) : 0,
+    energy: Number.isFinite(state.energy) ? Number(state.energy) : 100,
+    lastInteractionAt: Number.isFinite(state.lastInteractionAt) ? Number(state.lastInteractionAt) : now,
+    updatedAt: Number.isFinite(state.updatedAt) ? Number(state.updatedAt) : now
+  };
 }

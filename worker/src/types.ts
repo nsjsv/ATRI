@@ -4,10 +4,15 @@ export interface Env {
   MEDIA_BUCKET: R2Bucket;
   OPENAI_API_KEY: string;
   OPENAI_API_URL: string;
+  // 日记/用户档案专用上游（可选，不配则走默认聊天上游）
+  DIARY_API_KEY?: string;
+  DIARY_API_URL?: string;
+  DIARY_MODEL?: string;
   EMBEDDINGS_API_KEY: string;
   EMBEDDINGS_API_URL: string;
   EMBEDDINGS_MODEL: string;
   ADMIN_API_KEY?: string;
+  APP_TOKEN?: string;
 }
 
 export const CHAT_MODEL = 'openai.gpt-5-chat';

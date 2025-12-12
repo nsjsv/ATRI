@@ -46,16 +46,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import me.atri.data.model.AttachmentType
@@ -123,36 +116,13 @@ fun InputBar(
         }
         val inputShape = RoundedCornerShape(32.dp)
         val surfaceColor = MaterialTheme.colorScheme.surface
-        val cornerRadiusPx = with(LocalDensity.current) { 32.dp.toPx() }
-        val highlightBrush = remember(surfaceColor) {
-            val baseAlpha = if (surfaceColor.luminance() > 0.5f) 0.55f else 0.25f
-            Brush.verticalGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = baseAlpha),
-                    Color.Transparent
-                )
-            )
-        }
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .shadow(
-                    elevation = 24.dp,
-                    shape = inputShape,
-                    clip = false,
-                    ambientColor = Color.Black.copy(alpha = 0.1f),
-                    spotColor = Color.Black.copy(alpha = 0.28f)
-                )
                 .clip(inputShape)
                 .background(surfaceColor)
-                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.08f), inputShape)
-                .drawBehind {
-                    drawRoundRect(
-                        brush = highlightBrush,
-                        size = Size(width = size.width, height = size.height * 0.4f),
-                        cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx)
-                    )
-                }
+                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), inputShape)
         ) {
             Row(
                 modifier = Modifier
@@ -176,12 +146,13 @@ fun InputBar(
                     maxLines = 4,
                     enabled = enabled,
                     colors = TextFieldDefaults.colors(
-                        focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                        unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                        disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                        focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                        unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                        disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                        cursorColor = MaterialTheme.colorScheme.primary
                     )
                 )
 
