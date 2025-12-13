@@ -394,7 +394,7 @@ private fun ModelSelector(
                             )
                         }
                         if (index != models.lastIndex) {
-                            androidx.compose.material3.Divider()
+                            androidx.compose.material3.HorizontalDivider()
                         }
                     }
                 }

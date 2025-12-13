@@ -163,6 +163,21 @@ export async function getLastConversationDate(env: Env, userId: string, beforeDa
   return result?.date ?? null;
 }
 
+export async function getFirstConversationTimestamp(env: Env, userId: string): Promise<number | null> {
+  const row = await env.ATRI_DB.prepare(
+    `SELECT timestamp
+     FROM conversation_logs
+     WHERE user_id = ?
+     ORDER BY timestamp ASC
+     LIMIT 1`
+  )
+    .bind(userId)
+    .first<{ timestamp?: number }>();
+
+  const ts = row?.timestamp;
+  return typeof ts === 'number' && Number.isFinite(ts) ? ts : null;
+}
+
 export function calculateDaysBetween(date1: string, date2: string): number {
   const d1 = new Date(date1);
   const d2 = new Date(date2);
@@ -392,8 +407,9 @@ export async function updateMoodState(env: Env, params: {
   dominanceDelta?: number;
   touchedAt?: number;
   reason?: string;
+  currentState?: UserStateRecord;
 }) {
-  const current = await getUserState(env, params.userId);
+  const current = params.currentState ?? await getUserState(env, params.userId);
   const now = typeof params.touchedAt === 'number' ? params.touchedAt : Date.now();
   const nextPad: PadValues = [
     clampPad(current.padValues[0] + safeNumber(params.pleasureDelta)),
@@ -411,6 +427,29 @@ export async function updateMoodState(env: Env, params: {
   await saveUserState(env, next);
   if (params.reason) {
     console.log('[ATRI] mood updated', { userId: params.userId, padValues: nextPad, reason: params.reason });
+  }
+  return next;
+}
+
+export async function updateIntimacyState(env: Env, params: {
+  userId: string;
+  delta: number;
+  touchedAt?: number;
+  reason?: string;
+  currentState?: UserStateRecord;
+}) {
+  const current = params.currentState ?? await getUserState(env, params.userId);
+  const now = typeof params.touchedAt === 'number' ? params.touchedAt : Date.now();
+  const nextIntimacy = clampIntimacy(current.intimacy + safeInt(params.delta));
+  const next: UserStateRecord = {
+    ...current,
+    intimacy: nextIntimacy,
+    lastInteractionAt: now,
+    updatedAt: now
+  };
+  await saveUserState(env, next);
+  if (params.reason) {
+    console.log('[ATRI] intimacy updated', { userId: params.userId, intimacy: nextIntimacy, reason: params.reason });
   }
   return next;
 }
@@ -506,6 +545,16 @@ function clampPad(value: number) {
 
 function safeNumber(value: any) {
   return Number.isFinite(value) ? Number(value) : 0;
+}
+
+function safeInt(value: any) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.trunc(Number(value));
+}
+
+function clampIntimacy(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.trunc(value));
 }
 
 function normalizeUserState(state: UserStateRecord): UserStateRecord {

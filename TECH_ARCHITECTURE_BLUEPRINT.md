@@ -240,7 +240,7 @@
   "content": "今天好累啊",
   "userName": "小明",
   "clientTimeIso": "2025-01-15T22:30:00+08:00",
-  "modelKey": "openai.gpt-5-chat",
+  "modelKey": "gpt-4",
   "attachments": []
 }
 ```

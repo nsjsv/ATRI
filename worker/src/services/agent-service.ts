@@ -13,9 +13,11 @@ import {
   ConversationLogRecord,
   fetchConversationLogsSince,
   getDiaryEntryById,
+  getFirstConversationTimestamp,
   getUserProfile,
   getUserState,
   saveUserState,
+  updateIntimacyState,
   updateMoodState
 } from './data-service';
 import { buildWorkingMemoryTimeline } from './context-service';
@@ -62,6 +64,12 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
       ? workingMemory
       : buildWorkingMemoryFromRecentMessages(params.recentMessages, params.userName);
   const userProfileSnippet = await loadUserProfileSnippet(env, params.userId);
+  let firstConversationAt: number | null = null;
+  try {
+    firstConversationAt = await getFirstConversationTimestamp(env, params.userId);
+  } catch (error) {
+    console.warn('[ATRI] first conversation timestamp加载失败', { userId: params.userId, error });
+  }
   const baseState = await getUserState(env, params.userId);
   const touchedState = {
     ...baseState,
@@ -72,7 +80,7 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
   const systemPrompt = composeAgentSystemPrompt({
     padValues: touchedState.padValues,
     intimacy: touchedState.intimacy,
-    firstInteractionAt: baseState.lastInteractionAt,
+    firstInteractionAt: firstConversationAt ?? undefined,
     userName: params.userName,
     platform: params.platform,
     clientTimeIso: params.clientTimeIso,
@@ -396,10 +404,24 @@ async function executeAgentTool(
       pleasureDelta: args.pleasure_delta,
       arousalDelta: args.arousal_delta,
       dominanceDelta: args.dominance_delta,
-      reason: args.reason
+      reason: args.reason,
+      currentState: state
     });
     return {
       output: `已更新心情：P=${updated.padValues[0].toFixed(2)}, A=${updated.padValues[1].toFixed(2)}, D=${updated.padValues[2].toFixed(2)}`,
+      updatedState: updated
+    };
+  }
+
+  if (name === 'update_intimacy') {
+    const updated = await updateIntimacyState(env, {
+      userId,
+      delta: args.delta,
+      reason: args.reason,
+      currentState: state
+    });
+    return {
+      output: `已更新亲密度：${updated.intimacy}`,
       updatedState: updated
     };
   }
@@ -486,6 +508,21 @@ const AGENT_TOOLS = [
           reason: { type: 'string', description: '简短的内心独白' }
         },
         required: ['pleasure_delta', 'arousal_delta']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_intimacy',
+      description: '当对话让关系更近/互动增加时调用，更新亲密度（互动次数）',
+      parameters: {
+        type: 'object',
+        properties: {
+          delta: { type: 'integer', description: '亲密度变化（建议 1-5）' },
+          reason: { type: 'string', description: '简短原因或内心独白' }
+        },
+        required: ['delta']
       }
     }
   }

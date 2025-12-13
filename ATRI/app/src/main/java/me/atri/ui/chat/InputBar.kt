@@ -114,20 +114,19 @@ fun InputBar(
                 }
             }
         }
-        val inputShape = RoundedCornerShape(32.dp)
-        val surfaceColor = MaterialTheme.colorScheme.surface
+        val inputShape = RoundedCornerShape(28.dp)
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(inputShape)
-                .background(surfaceColor)
-                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), inputShape)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = inputShape,
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 4.dp,
+            tonalElevation = 1.dp
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {

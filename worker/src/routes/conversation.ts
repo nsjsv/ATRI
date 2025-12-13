@@ -44,9 +44,9 @@ export function registerConversationRoutes(router: Router) {
       });
 
       return jsonResponse({ ok: true, id: result.id, date: result.date });
-    } catch (error: any) {
-      console.error('[ATRI] conversation log error:', error);
-      return jsonResponse({ error: 'log_failed', details: String(error?.message || error) }, 500);
+    } catch (error: unknown) {
+      console.error('[ATRI] conversation log error');
+      return jsonResponse({ error: 'log_failed' }, 500);
     }
   });
 
@@ -65,12 +65,9 @@ export function registerConversationRoutes(router: Router) {
       }
       const changes = await deleteConversationLogsByIds(env, userId, ids);
       return jsonResponse({ ok: true, deleted: changes });
-    } catch (error: any) {
-      console.error('[ATRI] conversation delete error:', error);
-      return jsonResponse(
-        { error: 'delete_failed', details: String(error?.message || error) },
-        500
-      );
+    } catch (error: unknown) {
+      console.error('[ATRI] conversation delete error');
+      return jsonResponse({ error: 'delete_failed' }, 500);
     }
   });
 
@@ -95,9 +92,9 @@ export function registerConversationRoutes(router: Router) {
       }
       const daysSince = calculateDaysBetween(lastDate, anchorDate);
       return jsonResponse({ status: 'ok', date: lastDate, daysSince });
-    } catch (error: any) {
-      console.error('[ATRI] conversation last error:', error);
-      return jsonResponse({ error: 'lookup_failed', details: String(error?.message || error) }, 500);
+    } catch (error: unknown) {
+      console.error('[ATRI] conversation last error');
+      return jsonResponse({ error: 'lookup_failed' }, 500);
     }
   });
 }

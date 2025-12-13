@@ -1,12 +1,12 @@
 import type { Router } from 'itty-router';
-import { Env, CHAT_MODEL } from '../types';
+import { Env, CHAT_MODEL, ChatMessage, AttachmentPayload } from '../types';
 import { jsonResponse } from '../utils/json-response';
 import { normalizeAttachmentList } from '../utils/attachments';
 import { sanitizeText } from '../utils/sanitize';
 import { runAgentChat } from '../services/agent-service';
 import { requireAppToken } from '../utils/auth';
 
-type ChatRequestBody = {
+interface ChatRequestBody {
   userId: string;
   content: string;
   platform?: string;
@@ -14,11 +14,11 @@ type ChatRequestBody = {
   clientTimeIso?: string;
   modelKey?: string;
   imageUrl?: string;
-  attachments?: unknown[];
-  recentMessages?: unknown[];
-};
+  attachments?: AttachmentPayload[];
+  recentMessages?: ChatMessage[];
+}
 
-function parseChatRequest(body: any): ChatRequestBody | null {
+function parseChatRequest(body: Record<string, unknown>): ChatRequestBody | null {
   const userId = getString(body, ['userId', 'user_id']);
   const content = getString(body, ['content', 'message']);
 
@@ -32,12 +32,16 @@ function parseChatRequest(body: any): ChatRequestBody | null {
     clientTimeIso: getString(body, ['clientTimeIso', 'client_time']),
     modelKey: getString(body, ['modelKey', 'model']),
     imageUrl: getString(body, ['imageUrl']),
-    attachments: Array.isArray(body.attachments) ? body.attachments : undefined,
-    recentMessages: Array.isArray(body.recentMessages) ? body.recentMessages : undefined
+    attachments: Array.isArray(body.attachments)
+      ? normalizeAttachmentList(body.attachments)
+      : undefined,
+    recentMessages: Array.isArray(body.recentMessages)
+      ? (body.recentMessages as ChatMessage[])
+      : undefined
   };
 }
 
-function getString(obj: any, keys: string[]): string | undefined {
+function getString(obj: Record<string, unknown>, keys: string[]): string | undefined {
   for (const key of keys) {
     const val = obj[key];
     if (typeof val === 'string' && val.trim()) {
@@ -53,7 +57,7 @@ export function registerChatRoutes(router: Router) {
       const auth = requireAppToken(request, env);
       if (auth) return auth;
 
-      const body = await request.json();
+      const body = await request.json() as Record<string, unknown>;
       const parsed = parseChatRequest(body);
 
       if (!parsed) {
@@ -71,23 +75,22 @@ export function registerChatRoutes(router: Router) {
         userName: parsed.userName,
         clientTimeIso: parsed.clientTimeIso,
         messageText,
-        attachments: normalizeAttachmentList(parsed.attachments),
+        attachments: parsed.attachments || [],
         inlineImage: parsed.imageUrl,
         model: resolveModelKey(parsed.modelKey),
-        recentMessages: parsed.recentMessages as any
+        recentMessages: parsed.recentMessages
       });
       return jsonResponse(result);
-    } catch (error: any) {
-      console.error('[ATRI] Bio chat error:', error);
-      return jsonResponse(
-        { error: 'bio_chat_failed', details: String(error?.message || error) },
-        500
-      );
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const errStack = error instanceof Error ? error.stack : undefined;
+      console.error('[ATRI] Bio chat error', { message: errMsg, stack: errStack, error });
+      return jsonResponse({ error: 'bio_chat_failed', details: errMsg }, 500);
     }
   });
 }
 
-function resolveModelKey(modelKey?: string | null) {
+function resolveModelKey(modelKey?: string | null): string {
   if (typeof modelKey === 'string' && modelKey.trim().length > 0) {
     return modelKey.trim();
   }

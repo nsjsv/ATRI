@@ -30,7 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -452,7 +452,7 @@ fun ChatScreen(
                             scope.launch { drawerState.close() }
                         }
                     )
-                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     DrawerDateHeader(totalDays = uiState.dateSections.size)
                     DrawerDateBrowser(
                         sections = uiState.dateSections,
@@ -471,7 +471,7 @@ fun ChatScreen(
                             }
                         }
                     )
-                    Divider(modifier = Modifier.padding(top = 8.dp))
+                    HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
                     DrawerAction(text = "前往设置") {
                         scope.launch { drawerState.close() }
                         onOpenSettings()
@@ -490,21 +490,6 @@ fun ChatScreen(
                         onOpenDiary = onOpenDiary
                     )
                 }
-            },
-            bottomBar = {
-                if (!showWelcome) {
-                    Box(Modifier.imePadding().navigationBarsPadding()) {
-                        InputBar(
-                            enabled = !uiState.isLoading,
-                            isProcessing = uiState.isLoading,
-                            reference = uiState.referencedMessage,
-                            onClearReference = { viewModel.clearReferencedAttachments() },
-                            onToggleReferenceAttachment = { url -> viewModel.toggleReferencedAttachment(url) },
-                            onCancelProcessing = { viewModel.cancelSending() },
-                            onSendMessage = { content, attachments -> viewModel.sendMessage(content, attachments) }
-                        )
-                    }
-                }
             }
         ) { paddingValues ->
             Box(
@@ -513,15 +498,12 @@ fun ChatScreen(
                     .padding(paddingValues)
             ) {
                 if (showWelcome) {
-                    if (welcomeState.isLoading) {
-                        DailyWelcomeLoading()
-                    } else {
-                        DailyWelcome(
-                            state = welcomeState,
-                            avatarPath = atriAvatarPath,
-                            sessions = uiState.dateSections,
-                            onStartChat = {
-                                pendingScrollIndex = uiState.displayItems.lastIndex.takeIf { it >= 0 }
+                    DailyWelcome(
+                        state = welcomeState,
+                        avatarPath = atriAvatarPath,
+                        sessions = uiState.dateSections,
+                        onStartChat = {
+                            pendingScrollIndex = uiState.displayItems.lastIndex.takeIf { it >= 0 }
                             onDismissWelcome()
                         },
                         onSelectSession = { section ->
@@ -529,8 +511,7 @@ fun ChatScreen(
                             onDismissWelcome()
                         }
                     )
-                }
-            } else {
+                } else {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
@@ -540,7 +521,7 @@ fun ChatScreen(
                             start = 16.dp,
                             end = 16.dp,
                             top = 16.dp,
-                            bottom = 160.dp
+                            bottom = 120.dp
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -587,6 +568,33 @@ fun ChatScreen(
                         if (uiState.isLoading) {
                             item { TypingIndicator() }
                         }
+                    }
+
+                    // 输入框区域 - 整体渐变背景
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        MaterialTheme.colorScheme.background
+                                    )
+                                )
+                            )
+                            .imePadding()
+                            .navigationBarsPadding()
+                    ) {
+                        InputBar(
+                            enabled = !uiState.isLoading,
+                            isProcessing = uiState.isLoading,
+                            reference = uiState.referencedMessage,
+                            onClearReference = { viewModel.clearReferencedAttachments() },
+                            onToggleReferenceAttachment = { url -> viewModel.toggleReferencedAttachment(url) },
+                            onCancelProcessing = { viewModel.cancelSending() },
+                            onSendMessage = { content, attachments -> viewModel.sendMessage(content, attachments) }
+                        )
                     }
                 }
                 uiState.error?.let { error ->

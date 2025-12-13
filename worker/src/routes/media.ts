@@ -4,6 +4,26 @@ import { jsonResponse } from '../utils/json-response';
 import { buildPublicUrl, sanitizeFileName } from '../utils/file';
 import { requireAppToken } from '../utils/auth';
 
+/**
+ * 验证媒体访问token（通过query参数）
+ * 媒体文件需要在img标签中直接访问，无法使用header传递token
+ */
+function validateMediaToken(request: Request, env: Env): boolean {
+  const expected = (env.APP_TOKEN || '').trim();
+  if (!expected) return true; // 未配置token时跳过验证
+
+  const url = new URL(request.url);
+  const token = (url.searchParams.get('token') || '').trim();
+
+  // 时序安全比较
+  if (token.length !== expected.length) return false;
+  let result = 0;
+  for (let i = 0; i < token.length; i++) {
+    result |= token.charCodeAt(i) ^ expected.charCodeAt(i);
+  }
+  return result === 0;
+}
+
 export function registerMediaRoutes(router: Router) {
   router.post('/upload', async (request: RouterRequest, env: Env) => {
     try {
@@ -31,13 +51,18 @@ export function registerMediaRoutes(router: Router) {
 
       const url = buildPublicUrl(request, objectKey);
       return jsonResponse({ key: objectKey, url, mime, size });
-    } catch (error: any) {
-      console.error('[ATRI] Upload failed', error);
-      return jsonResponse({ error: 'Upload failed', details: String(error) }, 500);
+    } catch (error: unknown) {
+      console.error('[ATRI] Upload failed');
+      return jsonResponse({ error: 'Upload failed' }, 500);
     }
   });
 
   router.get('/media/:key+', async (request: RouterRequest, env: Env) => {
+    // 验证媒体访问token
+    if (!validateMediaToken(request, env)) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+
     const rawKey = request.params?.key;
     if (!rawKey) {
       return new Response('Not found', { status: 404 });

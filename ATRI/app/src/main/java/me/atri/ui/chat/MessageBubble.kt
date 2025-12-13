@@ -43,8 +43,7 @@ import com.halilibo.richtext.ui.RichTextScope
 import com.halilibo.richtext.ui.material3.Material3RichText
 import me.atri.data.db.entity.MessageEntity
 import me.atri.data.model.AttachmentType
-import me.atri.ui.theme.MessageBubbleAtri
-import me.atri.ui.theme.MessageBubbleUser
+import me.atri.ui.theme.AtriTheme
 
 @Composable
 fun MessageBubble(
@@ -103,7 +102,7 @@ fun MessageBubble(
                     bottomEnd = if (message.isFromAtri) 28.dp else 8.dp,
                     bottomStart = if (message.isFromAtri) 8.dp else 28.dp
                 ),
-                color = if (message.isFromAtri) MessageBubbleAtri else MessageBubbleUser,
+                color = if (message.isFromAtri) AtriTheme.colors.messageBubbleAtri else AtriTheme.colors.messageBubbleUser,
                 tonalElevation = 0.dp,
                 shadowElevation = 4.dp
             ) {
@@ -123,15 +122,26 @@ fun MessageBubble(
                     val imageAttachments = message.attachments.filter { it.type == AttachmentType.IMAGE }
                     if (imageAttachments.isNotEmpty()) {
                         imageAttachments.forEach { attachment ->
-                            AsyncImage(
-                                model = attachment.url,
-                                contentDescription = attachment.name,
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(top = 4.dp)
-                                    .heightIn(max = 220.dp)
+                                    .heightIn(min = 120.dp, max = 220.dp)
                                     .clip(RoundedCornerShape(12.dp))
-                            )
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                AsyncImage(
+                                    model = attachment.url,
+                                    contentDescription = attachment.name,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(RoundedCornerShape(12.dp)),
+                                    onLoading = { },
+                                    onError = { },
+                                    onSuccess = { }
+                                )
+                            }
                         }
                     }
 

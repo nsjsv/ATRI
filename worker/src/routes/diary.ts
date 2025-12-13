@@ -2,9 +2,13 @@ import type { Router } from 'itty-router';
 import { Env } from '../types';
 import { jsonResponse } from '../utils/json-response';
 import { getDiaryEntry, listDiaryEntries } from '../services/data-service';
+import { requireAppToken } from '../utils/auth';
 
 export function registerDiaryRoutes(router: any) {
   router.get('/diary', async (request: any, env: Env) => {
+    const auth = requireAppToken(request, env);
+    if (auth) return auth;
+
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId') || '';
     const date = searchParams.get('date') || '';
@@ -20,6 +24,9 @@ export function registerDiaryRoutes(router: any) {
   });
 
   router.get('/diary/list', async (request: any, env: Env) => {
+    const auth = requireAppToken(request, env);
+    if (auth) return auth;
+
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId') || '';
     const limit = Number(searchParams.get('limit') || '7');
