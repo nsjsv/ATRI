@@ -221,11 +221,11 @@
 | `POST` | `/conversation/log` | 🔐 X-App-Token | 记录单条对话 |
 | `POST` | `/conversation/delete` | 🔐 X-App-Token | 删除若干日志 |
 | `GET` | `/conversation/last` | 🔐 X-App-Token | 查询上次对话时间 |
-| `GET` | `/diary` | 🌐 公开 | 查询单日日记 |
-| `GET` | `/diary/list` | 🌐 公开 | 日记列表（倒序） |
+| `GET` | `/diary` | 🔐 X-App-Token | 查询单日日记 |
+| `GET` | `/diary/list` | 🔐 X-App-Token | 日记列表（倒序） |
 | `POST` | `/upload` | 🔐 X-App-Token | 附件上传到 R2 |
-| `GET` | `/media/:key` | 🌐 公开 | 读取附件 |
-| `GET` | `/models` | 🌐 公开 | 获取可用模型列表 |
+| `GET` | `/media/:key` | 🔐 X-App-Token | 读取附件 |
+| `GET` | `/models` | 🔐 X-App-Token | 获取可用模型列表 |
 | `POST` | `/admin/clear-user` | 🔒 Bearer Token | 清理用户数据（需 ADMIN_API_KEY） |
 
 ### 4.2 请求/响应示例
