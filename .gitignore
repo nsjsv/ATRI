@@ -52,3 +52,5 @@ ATRI/.kotlin/
 worker/.config/
 worker/.home/
 worker/.wrangler_home/
+
+app-debug.apk
