@@ -55,9 +55,8 @@ Chat with ATRI throughout your day. Every night at midnight, she writes a diary 
    - D1 database name (press Enter for default)
    - R2 bucket name (press Enter for default)
    - Vectorize index name (press Enter for default)
-   - API URLs (press Enter for OpenAI defaults)
    - **OPENAI_API_KEY** (required)
-   - Other optional secrets
+   - Other optional secrets (optional)
 3. The script will automatically create resources and deploy
 4. Copy the Worker URL (e.g., `https://atri-worker.xxx.workers.dev`)
 
@@ -112,7 +111,7 @@ Published atri-worker (1.0.0)
 | Secret | Description | Required |
 |--------|-------------|:--------:|
 | `OPENAI_API_KEY` | Chat model API key | ✅ |
-| `EMBEDDINGS_API_KEY` | Embeddings key (uses OPENAI_API_KEY if empty) | ❌ |
+| `EMBEDDINGS_API_KEY` | Embeddings key (pre-filled for SiliconFlow by default; replace with your own if needed) | ❌ |
 | `APP_TOKEN` | App access token to protect API | Recommended |
 
 **Set via command line:**
@@ -163,8 +162,8 @@ Download the pre-built APK: [`app-debug.apk`](app-debug.apk), or build from sour
 
 ### Q: How to use other AI services (DeepSeek, Claude, etc.)?
 **A:** Any OpenAI-compatible API works:
-1. Edit `OPENAI_API_URL` in `worker/wrangler.toml` to your provider's URL
-2. Redeploy: `cd worker && npx wrangler deploy`
+1. Edit `OPENAI_API_URL` (and optionally `DIARY_API_URL` / `DIARY_MODEL`) in `worker/wrangler.toml` to your provider's URL/model
+2. If embeddings use a different provider, edit `EMBEDDINGS_API_URL` / `EMBEDDINGS_MODEL` (and `EMBEDDINGS_API_KEY` if needed), then redeploy: `cd worker && npx wrangler deploy`
 
 ---
 
@@ -229,7 +228,7 @@ Contributions are welcome! Feel free to open issues or submit pull requests.
 
 ## 📄 License
 
-This project is licensed under the **MIT License**.
+This project is licensed under the **PolyForm Noncommercial License 1.0.0** (non-commercial use only). See [`LICENSE`](LICENSE).
 
 ---
 

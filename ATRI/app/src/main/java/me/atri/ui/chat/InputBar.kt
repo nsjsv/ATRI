@@ -155,7 +155,8 @@ fun InputBar(
                     )
                 )
 
-                val canSend = text.isNotBlank() || attachments.isNotEmpty()
+                val hasReferencedSelection = reference?.attachments?.any { it.selected } == true
+                val canSend = text.isNotBlank() || attachments.isNotEmpty() || hasReferencedSelection
                 val buttonEnabled = if (isProcessing) {
                     true
                 } else {

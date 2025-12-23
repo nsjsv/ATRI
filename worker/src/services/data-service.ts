@@ -127,24 +127,24 @@ export async function fetchConversationLogs(env: Env, userId: string, date: stri
   }));
 }
 
-export async function fetchConversationLogsSince(
-  env: Env,
-  userId: string,
-  startTimestamp: number
-): Promise<ConversationLogRecord[]> {
-  const result = await env.ATRI_DB.prepare(
-    `SELECT id, user_id as userId, date, role, content, attachments, mood, timestamp, user_name as userName, time_zone as timeZone
-     FROM conversation_logs
-     WHERE user_id = ? AND timestamp >= ?
-     ORDER BY timestamp ASC`
-  )
-    .bind(userId, startTimestamp)
-    .all<ConversationLogRecord>();
+export async function getConversationLogDate(env: Env, userId: string, logId: string): Promise<string | null> {
+  const trimmedUserId = String(userId || '').trim();
+  const trimmedLogId = String(logId || '').trim();
+  if (!trimmedUserId || !trimmedLogId) {
+    return null;
+  }
 
-  return (result.results || []).map((row) => ({
-    ...row,
-    attachments: parseJson(row.attachments)
-  }));
+  const row = await env.ATRI_DB.prepare(
+    `SELECT date
+     FROM conversation_logs
+     WHERE user_id = ? AND id = ?
+     LIMIT 1`
+  )
+    .bind(trimmedUserId, trimmedLogId)
+    .first<{ date?: string }>();
+
+  const date = String(row?.date || '').trim();
+  return date ? date : null;
 }
 
 export async function listPendingDiaryUsers(env: Env, date: string) {

@@ -2,6 +2,7 @@
 
 import android.content.Context
 import android.net.Uri
+import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -21,7 +22,9 @@ import me.atri.data.model.AttachmentType
 import me.atri.data.model.PendingAttachment
 import kotlin.text.RegexOption
 import kotlinx.coroutines.CancellationException
+import okhttp3.OkHttpClient
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.Request
 import okhttp3.RequestBody
 import okio.buffer
 import okio.source
@@ -30,6 +33,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import java.util.concurrent.TimeUnit
 import me.atri.data.model.LastConversationInfo
 import me.atri.data.api.response.BioChatResponse
 
@@ -59,6 +63,12 @@ class ChatRepository(
         )
     }
 
+    private val mediaHttpClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
+
     fun observeMessages(): Flow<List<MessageEntity>> = messageDao.observeAll()
 
     private val zoneId: ZoneId = ZoneId.systemDefault()
@@ -73,6 +83,9 @@ class ChatRepository(
         try {
             val userId = preferencesStore.ensureUserId()
             val userNameForLog = preferencesStore.userName.first().takeIf { it.isNotBlank() }
+            val inlineImageDataUrl = runCatching {
+                resolveInlineImageDataUrl(pending = attachments, reused = reusedAttachments)
+            }.getOrNull()
             val uploadedAttachments = uploadPendingAttachments(userId, attachments)
             val finalUserAttachments = mergeAttachmentLists(
                 primary = uploadedAttachments,
@@ -97,14 +110,12 @@ class ChatRepository(
                 timestamp = userMessage.timestamp,
                 attachments = finalUserAttachments
             )
-
-            val recentAll = messageDao.getAllMessages()
-            val recentMessages = if (recentAll.isNotEmpty()) recentAll.dropLast(1) else recentAll
             val request = buildChatRequest(
                 userId = userId,
+                logId = userMessage.id,
                 content = content,
                 attachments = finalUserAttachments,
-                recentMessages = recentMessages
+                inlineImageDataUrl = inlineImageDataUrl
             )
 
             val chatResult = executeChatRequest(request)
@@ -117,24 +128,22 @@ class ChatRepository(
     }
 
     suspend fun regenerateResponse(
-        contextMessages: List<MessageEntity>? = null,
-        userContent: String? = null,
-        userAttachments: List<Attachment>? = null
+        userMessageId: String,
+        userContent: String,
+        userAttachments: List<Attachment>
     ): Result<ChatResult> = withContext(Dispatchers.IO) {
         try {
             val userId = preferencesStore.ensureUserId()
-            val recentMessages = contextMessages ?: messageDao.getAllMessages()
-            val lastUserMessage = recentMessages.lastOrNull { !it.isFromAtri }
-
-            val finalContent = userContent ?: lastUserMessage?.content
-                ?: return@withContext Result.failure(Exception("No user message found"))
-            val finalAttachments = userAttachments ?: lastUserMessage?.attachments ?: emptyList()
+            val inlineImageDataUrl = runCatching {
+                resolveInlineImageDataUrlFromAttachments(userAttachments)
+            }.getOrNull()
 
             val request = buildChatRequest(
                 userId = userId,
-                content = finalContent,
-                attachments = finalAttachments,
-                recentMessages = recentMessages
+                logId = userMessageId,
+                content = userContent,
+                attachments = userAttachments,
+                inlineImageDataUrl = inlineImageDataUrl
             )
 
             val chatResult = executeChatRequest(request)
@@ -350,22 +359,30 @@ class ChatRepository(
 
     private suspend fun buildChatRequest(
         userId: String? = null,
+        logId: String? = null,
         content: String,
         attachments: List<Attachment>,
-        recentMessages: List<MessageEntity>
+        inlineImageDataUrl: String? = null
     ): ChatRequest {
         val ensuredUserId = userId ?: preferencesStore.ensureUserId()
         val userName = preferencesStore.userName.first()
         val preferredModel = preferencesStore.modelName.first().takeIf { it.isNotBlank() }
         val requestContent = content
         val compatImage = attachments.firstOrNull { it.type == AttachmentType.IMAGE }?.url
+        val resolvedInlineImage = inlineImageDataUrl?.takeIf { it.isNotBlank() }
+            ?: compatImage?.takeIf { it.isNotBlank() }
+        val requestAttachments = if (inlineImageDataUrl.isNullOrBlank()) {
+            attachments
+        } else {
+            attachments.filter { it.type != AttachmentType.IMAGE }
+        }
 
         return ChatRequest(
             userId = ensuredUserId,
             content = requestContent,
-            imageUrl = compatImage,
-            attachments = attachments.map { it.toPayload() },
-            recentMessages = recentMessages.map { it.toMessageContext() },
+            logId = logId,
+            imageUrl = resolvedInlineImage,
+            attachments = requestAttachments.map { it.toPayload() },
             userName = userName.takeIf { it.isNotBlank() },
             clientTimeIso = currentClientTimeIso(),
             modelKey = preferredModel
@@ -392,17 +409,6 @@ class ChatRepository(
     private fun currentClientTimeIso(): String =
         java.time.OffsetDateTime.now()
             .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX"))
-
-    private fun MessageEntity.toMessageContext(): ChatRequest.MessageContext =
-        ChatRequest.MessageContext(
-            content = cleanTimestampPrefix(content),
-            isFromAtri = isFromAtri,
-            timestampMs = timestamp,
-            // 历史消息不携带图片附件，只保留非图片的附件（如文档）
-            attachments = attachments
-                .filter { it.type != AttachmentType.IMAGE }
-                .map { attachment -> attachment.toPayload() }
-        )
     private fun cleanTimestampPrefix(content: String): String {
         // 清理形如 [2025-11-11T14:06:12.034Z ATRI] 的前缀，与 worker 的正则保持一致
         return content
@@ -446,6 +452,81 @@ class ChatRepository(
             )
         }
         return result
+    }
+
+    private fun normalizeMimeForDataUrl(raw: String?): String {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isBlank()) return "application/octet-stream"
+        return trimmed.substringBefore(';').trim()
+    }
+
+    private fun buildDataUrl(bytes: ByteArray, mime: String): String {
+        val normalized = normalizeMimeForDataUrl(mime)
+        val encoded = Base64.encodeToString(bytes, Base64.NO_WRAP)
+        return "data:$normalized;base64,$encoded"
+    }
+
+    private suspend fun resolveInlineImageDataUrl(
+        pending: List<PendingAttachment>,
+        reused: List<Attachment>
+    ): String? {
+        val pendingImage = pending.firstOrNull { it.type == AttachmentType.IMAGE }
+        if (pendingImage != null) {
+            return loadPendingImageAsDataUrl(pendingImage)
+        }
+        val reusedImage = reused.firstOrNull { it.type == AttachmentType.IMAGE }
+        if (reusedImage != null) {
+            return loadRemoteImageAsDataUrl(reusedImage)
+        }
+        return null
+    }
+
+    private suspend fun resolveInlineImageDataUrlFromAttachments(attachments: List<Attachment>): String? {
+        val image = attachments.firstOrNull { it.type == AttachmentType.IMAGE } ?: return null
+        return loadRemoteImageAsDataUrl(image)
+    }
+
+    private fun loadPendingImageAsDataUrl(attachment: PendingAttachment): String? {
+        val mime = normalizeMimeForDataUrl(
+            attachment.mime.takeIf { it.isNotBlank() }
+                ?: context.contentResolver.getType(attachment.uri)
+        ).let { resolved ->
+            if (resolved == "application/octet-stream") "image/jpeg" else resolved
+        }
+        val bytes = context.contentResolver.openInputStream(attachment.uri)?.use { input ->
+            input.readBytes()
+        } ?: return null
+        return buildDataUrl(bytes, mime)
+    }
+
+    private suspend fun loadRemoteImageAsDataUrl(attachment: Attachment): String? {
+        val url = attachment.url.trim()
+        if (url.isBlank()) return null
+        if (url.startsWith("data:")) return url
+
+        val token = preferencesStore.appToken.first().trim()
+        val requestBuilder = Request.Builder().url(url)
+        if (token.isNotEmpty()) {
+            requestBuilder.addHeader("X-App-Token", token)
+        }
+
+        return runCatching {
+            mediaHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw IllegalStateException("图片拉取失败: ${response.code}")
+                }
+                val bodyBytes = response.body?.bytes() ?: throw IllegalStateException("图片响应为空")
+                val headerMime = response.header("Content-Type")?.substringBefore(';')?.trim()
+                val mime = normalizeMimeForDataUrl(
+                    attachment.mime.takeIf { it.isNotBlank() } ?: headerMime
+                ).let { resolved ->
+                    if (resolved == "application/octet-stream") "image/jpeg" else resolved
+                }
+                buildDataUrl(bodyBytes, mime)
+            }
+        }.onFailure {
+            println("引用图片转 base64 失败: ${it.message}")
+        }.getOrNull()
     }
 
     private fun Attachment.toPayload(): ChatRequest.AttachmentPayload {

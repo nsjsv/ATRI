@@ -57,7 +57,7 @@
 ║                                    ▼                                          ║
 ║  ┌─────────────────────────────────────────────────────────────────────────┐  ║
 ║  │                        🔧 核心服务 (services/)                           │  ║
-║  │  agent-service │ context-service │ diary-generator │ memory-service     │  ║
+║  │  agent-service │ diary-generator │ memory-service │ media-signature    │  ║
 ║  └─────────────────────────────────────────────────────────────────────────┘  ║
 ║                                    │                                          ║
 ║                                    ▼                                          ║
@@ -224,7 +224,8 @@
 | `GET` | `/diary` | 🔐 X-App-Token | 查询单日日记 |
 | `GET` | `/diary/list` | 🔐 X-App-Token | 日记列表（倒序） |
 | `POST` | `/upload` | 🔐 X-App-Token | 附件上传到 R2 |
-| `GET` | `/media/:key` | 🔐 X-App-Token | 读取附件 |
+| `GET` | `/media/:key` | 🔐 X-App-Token / 签名 URL / token | 读取附件（App 用 Header，模型用签名 URL） |
+| `GET` | `/media-s/:exp/:sig/:key` | 🔐 X-App-Token / 签名 URL / token | 给模型用的路径签名媒体地址（避免 query 丢失） |
 | `GET` | `/models` | 🔐 X-App-Token | 获取可用模型列表 |
 | `POST` | `/admin/clear-user` | 🔒 Bearer Token | 清理用户数据（需 ADMIN_API_KEY） |
 
@@ -238,6 +239,7 @@
 {
   "userId": "uuid-xxx",
   "content": "今天好累啊",
+  "logId": "log-uuid",
   "userName": "小明",
   "clientTimeIso": "2025-01-15T22:30:00+08:00",
   "modelKey": "gpt-4",
@@ -352,8 +354,9 @@ account_id = "your-account-id"
 OPENAI_API_URL = "https://api.openai.com/v1"
 DIARY_API_URL = "https://api.openai.com/v1"          # 可选：日记专用上游
 DIARY_MODEL = "gpt-4"
-EMBEDDINGS_API_URL = "https://api.openai.com/v1"     # 可选：向量上游
-EMBEDDINGS_MODEL = "BAAI/bge-m3"               # 默认 1024 维
+EMBEDDINGS_API_URL = "https://api.siliconflow.cn/v1"     # 默认：向量/嵌入上游（OpenAI 兼容）
+EMBEDDINGS_API_KEY = "your-embeddings-key"              # 可选：覆盖默认（也可用 wrangler secret）
+EMBEDDINGS_MODEL = "BAAI/bge-m3"                        # 默认 1024 维
 
 [[vectorize]]
 binding = "VECTORIZE"
@@ -427,8 +430,9 @@ npx wrangler vectorize create atri-memories --dimensions=1024 --metric=cosine
 
 # 7️⃣ 配置 Secrets
 npx wrangler secret put OPENAI_API_KEY
-npx wrangler secret put EMBEDDINGS_API_KEY
+npx wrangler secret put EMBEDDINGS_API_KEY  # 可选：覆盖默认 embeddings key
 npx wrangler secret put APP_TOKEN
+npx wrangler secret put MEDIA_SIGNING_KEY   # 可选：媒体签名密钥（不配则回退 APP_TOKEN）
 npx wrangler secret put ADMIN_API_KEY  # 可选
 ```
 

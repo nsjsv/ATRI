@@ -1,5 +1,5 @@
 import type { Router } from 'itty-router';
-import { Env, CHAT_MODEL, ChatMessage, AttachmentPayload } from '../types';
+import { Env, CHAT_MODEL, AttachmentPayload } from '../types';
 import { jsonResponse } from '../utils/json-response';
 import { normalizeAttachmentList } from '../utils/attachments';
 import { sanitizeText } from '../utils/sanitize';
@@ -10,35 +10,41 @@ import { requireAppToken } from '../utils/auth';
 interface ChatRequestBody {
   userId: string;
   content: string;
+  logId?: string;
   platform?: string;
   userName?: string;
   clientTimeIso?: string;
   modelKey?: string;
   imageUrl?: string;
   attachments?: AttachmentPayload[];
-  recentMessages?: ChatMessage[];
 }
 
 function parseChatRequest(body: Record<string, unknown>): ChatRequestBody | null {
   const userId = getString(body, ['userId', 'user_id']);
-  const content = getString(body, ['content', 'message']);
+  const content = getAnyString(body, ['content', 'message']);
 
-  if (!userId || !content) return null;
+  if (!userId) return null;
+
+  const imageUrl = getString(body, ['imageUrl']);
+  const attachments = Array.isArray(body.attachments)
+    ? normalizeAttachmentList(body.attachments)
+    : undefined;
+  const hasImage = Boolean(imageUrl) || (attachments || []).some(att => att.type === 'image');
+  const cleanedContent = (content || '').trim();
+
+  // 允许“只发图不发字”，但不允许完全空消息
+  if (!cleanedContent && !hasImage) return null;
 
   return {
     userId,
-    content,
+    content: cleanedContent,
+    logId: getString(body, ['logId', 'log_id', 'messageId', 'message_id']),
     platform: getString(body, ['platform', 'client']) || 'android',
     userName: getString(body, ['userName', 'user_name']),
     clientTimeIso: getString(body, ['clientTimeIso', 'client_time']),
     modelKey: getString(body, ['modelKey', 'model']),
-    imageUrl: getString(body, ['imageUrl']),
-    attachments: Array.isArray(body.attachments)
-      ? normalizeAttachmentList(body.attachments)
-      : undefined,
-    recentMessages: Array.isArray(body.recentMessages)
-      ? (body.recentMessages as ChatMessage[])
-      : undefined
+    imageUrl,
+    attachments
   };
 }
 
@@ -47,6 +53,16 @@ function getString(obj: Record<string, unknown>, keys: string[]): string | undef
     const val = obj[key];
     if (typeof val === 'string' && val.trim()) {
       return val.trim();
+    }
+  }
+  return undefined;
+}
+
+function getAnyString(obj: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const val = obj[key];
+    if (typeof val === 'string') {
+      return val;
     }
   }
   return undefined;
@@ -65,8 +81,9 @@ export function registerChatRoutes(router: Router) {
         return jsonResponse({ error: 'invalid_request', message: 'userId and content are required' }, 400);
       }
 
-      const messageText = sanitizeText(parsed.content);
-      if (!messageText) {
+      const messageText = sanitizeText(parsed.content || '');
+      const hasImage = Boolean(parsed.imageUrl) || (parsed.attachments || []).some(att => att.type === 'image');
+      if (!messageText && !hasImage) {
         return jsonResponse({ error: 'invalid_request', message: 'content cannot be empty' }, 400);
       }
 
@@ -88,7 +105,7 @@ export function registerChatRoutes(router: Router) {
         attachments: parsed.attachments || [],
         inlineImage: parsed.imageUrl,
         model: resolveModelKey(parsed.modelKey),
-        recentMessages: parsed.recentMessages
+        logId: parsed.logId
       });
       return jsonResponse(result);
     } catch (error: unknown) {

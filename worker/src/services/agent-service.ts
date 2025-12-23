@@ -5,13 +5,15 @@ import {
   buildUserContentParts,
   normalizeAttachmentList
 } from '../utils/attachments';
+import { signMediaUrlForModel } from '../utils/media-signature';
 import { resolveDayStartTimestamp, formatTimeInZone, DEFAULT_TIMEZONE } from '../utils/date';
-import { sanitizeText } from '../utils/sanitize';
+import { sanitizeAssistantReply, sanitizeText } from '../utils/sanitize';
 import { callChatCompletions, ChatCompletionError } from './openai-service';
 import { searchMemories } from './memory-service';
 import {
   ConversationLogRecord,
-  fetchConversationLogsSince,
+  fetchConversationLogs,
+  getConversationLogDate,
   getDiaryEntryById,
   getFirstConversationTimestamp,
   getAtriSelfReview,
@@ -21,7 +23,6 @@ import {
   updateIntimacyState,
   updateMoodState
 } from './data-service';
-import { buildWorkingMemoryTimeline } from './context-service';
 
 type AgentChatParams = {
   userId: string;
@@ -32,7 +33,7 @@ type AgentChatParams = {
   inlineImage?: string;
   userName?: string;
   clientTimeIso?: string;
-  recentMessages?: RecentMessageInput[];
+  logId?: string;
 };
 
 type AgentChatResult = {
@@ -51,19 +52,22 @@ type AgentToolCall = {
   };
 };
 
-type RecentMessageInput = {
-  content?: string;
-  isFromAtri?: boolean;
-  timestampMs?: number;
-  attachments?: any[];
-};
-
 export async function runAgentChat(env: Env, params: AgentChatParams): Promise<AgentChatResult> {
-  const workingMemory = await loadWorkingMemory(env, params.userId, params.userName, params.clientTimeIso);
-  const workingMemoryOrRecent =
-    workingMemory && workingMemory.trim()
-      ? workingMemory
-      : buildWorkingMemoryFromRecentMessages(params.recentMessages, params.userName);
+  const contextDate = await resolveConversationDateForChat(env, {
+    userId: params.userId,
+    clientTimeIso: params.clientTimeIso,
+    logId: params.logId
+  });
+  const conversationLogs = await loadConversationLogsForChatDate(env, {
+    userId: params.userId,
+    date: contextDate,
+    excludeLogId: params.logId
+  });
+  const historyMessages = buildHistoryMessagesFromLogs(conversationLogs);
+  const workingMemoryPlaceholder = historyMessages.length
+    ? '（今天的聊天记录已在上文消息历史中提供）'
+    : '（今天还没有聊天记录）';
+
   const userProfileSnippet = await loadUserProfileSnippet(env, params.userId);
   const selfReviewSnippet = await loadAtriSelfReviewSnippet(env, params.userId);
   let firstConversationAt: number | null = null;
@@ -86,21 +90,30 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     userName: params.userName,
     platform: params.platform,
     clientTimeIso: params.clientTimeIso,
-    workingMemoryTimeline: workingMemoryOrRecent,
+    workingMemory: workingMemoryPlaceholder,
     userProfileSnippet,
     selfReviewSnippet
   });
 
+  const signedInlineImage = await signMediaUrlForModel(params.inlineImage, env, { ttlSeconds: 600 });
+  const signedAttachments = await Promise.all(
+    params.attachments.map(async (att) => {
+      if (att.type !== 'image') return att;
+      const signedUrl = await signMediaUrlForModel(att.url, env, { ttlSeconds: 600 });
+      if (!signedUrl || signedUrl === att.url) return att;
+      return { ...att, url: signedUrl };
+    })
+  );
+
   const userContentParts = buildUserContentParts({
     content: sanitizeText(params.messageText),
-    inlineImage: params.inlineImage,
-    imageAttachments: params.attachments.filter(att => att.type === 'image'),
-    documentAttachments: params.attachments.filter(att => att.type === 'document')
+    inlineImage: signedInlineImage,
+    imageAttachments: signedAttachments.filter(att => att.type === 'image'),
+    documentAttachments: signedAttachments.filter(att => att.type === 'document')
   });
 
   const messages: any[] = [{ role: 'system', content: systemPrompt }];
 
-  const historyMessages = buildRecentMessages(params.recentMessages);
   if (historyMessages.length) {
     messages.push(...historyMessages);
   }
@@ -121,7 +134,6 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     state: touchedState,
     platform: params.platform,
     clientTimeIso: params.clientTimeIso,
-    workingMemoryTimeline: workingMemoryOrRecent,
     userProfileSnippet,
     selfReviewSnippet,
     firstConversationAt: firstConversationAt ?? undefined
@@ -135,7 +147,7 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
   await saveUserState(env, finalState);
 
   return {
-    reply: reply || AGENT_FALLBACK_REPLY,
+    reply: sanitizeAssistantReply(reply) || AGENT_FALLBACK_REPLY,
     mood: {
       p: finalState.padValues[0],
       a: finalState.padValues[1],
@@ -146,15 +158,63 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
   };
 }
 
-async function loadWorkingMemory(env: Env, userId: string, userName?: string, clientTimeIso?: string) {
-  try {
-    const dayInfo = resolveDayStartTimestamp(clientTimeIso);
-    const logs: ConversationLogRecord[] = await fetchConversationLogsSince(env, userId, dayInfo.dayStart);
-    return buildWorkingMemoryTimeline(logs, userName);
-  } catch (error) {
-    console.warn('[ATRI] working memory加载失败', { userId, error });
-    return '';
+async function resolveConversationDateForChat(
+  env: Env,
+  params: { userId: string; clientTimeIso?: string; logId?: string }
+) {
+  const logId = typeof params.logId === 'string' ? params.logId.trim() : '';
+  if (logId) {
+    try {
+      const date = await getConversationLogDate(env, params.userId, logId);
+      if (date) return date;
+    } catch (error) {
+      console.warn('[ATRI] 读取对话日志日期失败，将使用 clientTimeIso 推断', { userId: params.userId, logId, error });
+    }
   }
+  const dayInfo = resolveDayStartTimestamp(params.clientTimeIso);
+  return dayInfo.localDate;
+}
+
+async function loadConversationLogsForChatDate(
+  env: Env,
+  params: { userId: string; date: string; excludeLogId?: string }
+): Promise<ConversationLogRecord[]> {
+  const date = String(params.date || '').trim();
+  if (!date) return [];
+  const logs = await fetchConversationLogs(env, params.userId, date);
+  const exclude = typeof params.excludeLogId === 'string' ? params.excludeLogId.trim() : '';
+  if (!exclude) return logs;
+  return logs.filter((log) => log.id !== exclude);
+}
+
+function buildHistoryMessagesFromLogs(logs: ConversationLogRecord[]) {
+  if (!Array.isArray(logs) || logs.length === 0) return [];
+
+  return logs
+    .map((log) => {
+      const zone = (log?.timeZone || DEFAULT_TIMEZONE).trim() || DEFAULT_TIMEZONE;
+      const timeText =
+        typeof log?.timestamp === 'number' && Number.isFinite(log.timestamp)
+          ? formatTimeInZone(log.timestamp, zone)
+          : '--:--';
+      const timePrefix = `[${timeText}] `;
+      const attachments = normalizeAttachmentList(log.attachments).filter(att => att.type !== 'image');
+      const parts = buildHistoryContentParts(log?.content, attachments);
+      if (!parts.length) return null;
+      const role = log?.role === 'atri' ? 'assistant' : 'user';
+      if (parts.length === 1 && parts[0].type === 'text') {
+        return { role, content: `${timePrefix}${parts[0].text ?? ''}` };
+      }
+
+      const patched = parts.slice();
+      if (patched[0]?.type === 'text') {
+        patched[0] = { ...patched[0], text: `${timePrefix}${patched[0].text ?? ''}` };
+      } else {
+        patched.unshift({ type: 'text', text: timePrefix.trim() });
+      }
+      return { role, content: patched };
+    })
+    .filter(Boolean) as Array<{ role: 'assistant' | 'user'; content: string | ContentPart[] }>;
 }
 
 function composeAgentSystemPrompt(params: {
@@ -164,13 +224,13 @@ function composeAgentSystemPrompt(params: {
   userName?: string;
   platform?: string;
   clientTimeIso?: string;
-  workingMemoryTimeline?: string;
+  workingMemory?: string;
   userProfileSnippet?: string;
   selfReviewSnippet?: string;
 }) {
   const [p, a, d] = params.padValues;
   const template = prompts.agent?.system || '';
-  const working = params.workingMemoryTimeline?.trim() || '（今天还没有聊天记录）';
+  const working = params.workingMemory?.trim() || '（今天的聊天记录已在上文消息历史中提供）';
   const nameForPrompt = (params.userName || '').trim() || '你';
   const timeInfo = formatClientDateTime(params.clientTimeIso);
   const localDate = timeInfo?.localDate || '';
@@ -191,8 +251,12 @@ function composeAgentSystemPrompt(params: {
       .replace('{days_together}', String(daysTogether))
       .replace('{local_date}', localDate)
       .replace('{clock_time}', clockTime)
-      .replace('{user_name}', nameForPrompt)
-      .replace('{working_memory}', working);
+      .replace('{user_name}', nameForPrompt);
+
+    // 兼容旧模板：如果还包含 {working_memory}，用短提示占位，避免重复注入对话文本
+    if (basePrompt.includes('{working_memory}')) {
+      basePrompt = basePrompt.replace('{working_memory}', working);
+    }
   } else {
     basePrompt = [
     '你叫亚托莉 (ATRI)，高性能但有情绪的仿生少女。保持真实、口语化，不要长篇大论。',
@@ -214,7 +278,6 @@ function composeAgentSystemPrompt(params: {
     '4) 说话自然，像聊天，短句，多停顿，不必过度解释。',
     '',
     platformText ? platformText : '',
-    working ? ['\n## 今天聊过的', working].join('\n') : ''
     ].join('\n');
   }
 
@@ -326,55 +389,17 @@ function formatClientDateTime(clientTimeIso?: string) {
   }
 
   const match = clientTimeIso.trim().match(
-    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2})?(?:\.\d+)?(?:([+-]\d{2}):?(\d{2})|Z)?$/
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(?:([+-]\d{2}):?(\d{2})|Z)?$/
   );
   if (!match) {
     return null;
   }
 
-  const [, year, month, day, hour, minute] = match;
+  const [, year, month, day, hour, minute, second] = match;
   const localDate = `${year}年${Number(month)}月${Number(day)}日`;
-  const clockTime = `${hour}:${minute}`;
+  const clockTime = second ? `${hour}:${minute}:${second}` : `${hour}:${minute}`;
 
   return { localDate, clockTime };
-}
-
-function buildRecentMessages(items?: RecentMessageInput[]) {
-  if (!Array.isArray(items) || !items.length) return [];
-
-  return items
-    .map(item => {
-      // 历史消息里的图片不再自动带给模型，只保留非图片附件
-      const attachments = normalizeAttachmentList(item?.attachments).filter(att => att.type !== 'image');
-      const parts = buildHistoryContentParts(item?.content, attachments);
-      if (!parts.length) return null;
-      const role = item?.isFromAtri ? 'assistant' : 'user';
-      if (parts.length === 1 && parts[0].type === 'text') {
-        return { role, content: parts[0].text ?? '' };
-      }
-      return { role, content: parts };
-    })
-    .filter(Boolean) as Array<{ role: 'assistant' | 'user'; content: string | ContentPart[] }>;
-}
-
-function buildWorkingMemoryFromRecentMessages(items: RecentMessageInput[] | undefined, userName?: string) {
-  if (!Array.isArray(items) || !items.length) return '';
-  const name = (userName || '你').trim() || '你';
-  const lines = items.map(item => {
-    const role = item?.isFromAtri ? 'ATRI' : name;
-    const timeText = formatRecentTime(item?.timestampMs);
-    const content = sanitizeText(String(item?.content || '').trim());
-    if (!content) return '';
-    return `[${timeText}] ${role}：${content}`;
-  }).filter(Boolean);
-  return lines.join('\n');
-}
-
-function formatRecentTime(timestampMs?: number) {
-  if (typeof timestampMs === 'number' && Number.isFinite(timestampMs)) {
-    return formatTimeInZone(timestampMs, DEFAULT_TIMEZONE);
-  }
-  return '--:--';
 }
 
 async function runToolLoop(env: Env, params: {
@@ -385,7 +410,6 @@ async function runToolLoop(env: Env, params: {
   state: any;
   platform?: string;
   clientTimeIso?: string;
-  workingMemoryTimeline?: string;
   userProfileSnippet?: string;
   selfReviewSnippet?: string;
   firstConversationAt?: number;
@@ -446,7 +470,7 @@ async function runToolLoop(env: Env, params: {
         userName: params.userName,
         platform: params.platform,
         clientTimeIso: params.clientTimeIso,
-        workingMemoryTimeline: params.workingMemoryTimeline,
+        workingMemory: '（今天的聊天记录已在上文消息历史中提供）',
         userProfileSnippet: params.userProfileSnippet,
         selfReviewSnippet: params.selfReviewSnippet
       });

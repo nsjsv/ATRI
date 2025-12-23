@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -420,7 +422,8 @@ fun ChatScreen(
 
     LaunchedEffect(uiState.displayItems.size, showWelcome) {
         if (uiState.displayItems.isNotEmpty() && !showWelcome && pendingScrollIndex == null) {
-            listState.animateScrollToItem(uiState.displayItems.lastIndex)
+            // 返回时使用无动画滚动，直接定位到最后一条消息
+            listState.scrollToItem(uiState.displayItems.lastIndex)
         }
     }
 
@@ -492,10 +495,39 @@ fun ChatScreen(
                 }
             }
         ) { paddingValues ->
+            // 右边缘滑动检测：从右边缘向左滑动时进入日记页面
+            var startX by remember { mutableStateOf(0f) }
+            var swipeOffset by remember { mutableStateOf(0f) }
+            val swipeThreshold = 60f   // 滑动阈值（像素）
+            val edgeWidth = 100f       // 边缘检测区域宽度（像素）- 约屏幕右侧 1/4
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
+                    .pointerInput(showWelcome, drawerState.isOpen) {
+                        // 只在非欢迎界面且抽屉关闭时检测右边缘左滑
+                        if (!showWelcome && !drawerState.isOpen) {
+                            detectHorizontalDragGestures(
+                                onDragStart = { offset ->
+                                    startX = offset.x
+                                    swipeOffset = 0f
+                                },
+                                onDragEnd = {
+                                    // 只有从右边缘开始且向左滑动超过阈值才触发
+                                    val screenWidth = size.width.toFloat()
+                                    if (startX > screenWidth - edgeWidth && swipeOffset < -swipeThreshold) {
+                                        onOpenDiary()
+                                    }
+                                    swipeOffset = 0f
+                                },
+                                onDragCancel = { swipeOffset = 0f },
+                                onHorizontalDrag = { _, dragAmount ->
+                                    swipeOffset += dragAmount
+                                }
+                            )
+                        }
+                    }
             ) {
                 if (showWelcome) {
                     DailyWelcome(

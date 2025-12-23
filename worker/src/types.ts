@@ -4,6 +4,8 @@ export interface Env {
   MEDIA_BUCKET: R2Bucket;
   OPENAI_API_KEY: string;
   OPENAI_API_URL: string;
+  // 媒体签名密钥（可选，不配则回退用 APP_TOKEN）
+  MEDIA_SIGNING_KEY?: string;
   // 日记/用户档案专用上游（可选，不配则走默认聊天上游）
   DIARY_API_KEY?: string;
   DIARY_API_URL?: string;
@@ -33,19 +35,13 @@ export type ContentPart =
 
 export type RouterRequest = Request & { params?: Record<string, string> };
 
-// Chat 相关类型
-export interface ChatMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string | ContentPart[];
-}
-
 export interface BioChatRequest {
   userId: string;
   userName?: string;
   userBirthday?: string;
   content: string;
+  logId?: string;
   attachments?: AttachmentPayload[];
-  recentMessages?: ChatMessage[];
   modelKey?: string;
   timeZone?: string;
 }

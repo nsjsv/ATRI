@@ -44,3 +44,11 @@ ATRI/.kotlin/
 *.bat
 !scripts/deploy_cf.bat
 *副本*
+
+# 本地对比用目录（不要发布）
+新版/
+
+# Wrangler 本地目录（兼容某些环境变量重定向）
+worker/.config/
+worker/.home/
+worker/.wrangler_home/

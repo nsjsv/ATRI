@@ -51,9 +51,8 @@ ATRI 是一个 **Android 应用 + 云端后端** 的 AI 陪伴项目。
    - D1 数据库名字（直接回车用默认）
    - R2 存储桶名字（直接回车用默认）
    - Vectorize 索引名字（直接回车用默认）
-   - 各类 API URL（直接回车用 OpenAI 官方地址）
    - **OPENAI_API_KEY**（必填，你的 API 密钥）
-   - 其他可选密钥
+   - 其他可选密钥（可跳过）
 3. 脚本会自动创建资源、配置、部署
 4. 完成后复制 Worker 地址（形如 `https://atri-worker.xxx.workers.dev`）
 
@@ -109,7 +108,7 @@ Published atri-worker (1.0.0)
 | 变量名 | 用途 | 必填 |
 |--------|------|:----:|
 | `OPENAI_API_KEY` | 聊天模型密钥 | ✅ |
-| `EMBEDDINGS_API_KEY` | 向量/嵌入密钥（留空则使用 OPENAI_API_KEY） | ❌ |
+| `EMBEDDINGS_API_KEY` | 向量/嵌入密钥（默认已预置为 SiliconFlow，可自行替换为自己的） | ❌ |
 | `APP_TOKEN` | 客户端访问令牌，保护 API 不被滥用 | 建议 |
 
 **通过命令行设置：**
@@ -162,8 +161,8 @@ npx wrangler secret put APP_TOKEN
 
 ### Q: 如何使用其他 AI 服务（如 DeepSeek、Claude 等）？
 **A:** 只要兼容 OpenAI API 格式即可：
-1. 修改 `worker/wrangler.toml` 中的 `OPENAI_API_URL` 为对应服务的地址
-2. 重新部署：`cd worker && npx wrangler deploy`
+1. 修改 `worker/wrangler.toml` 里的 `OPENAI_API_URL`（以及可选的 `DIARY_API_URL` / `DIARY_MODEL`）为对应服务的地址/模型
+2. 如果向量/嵌入走不同上游，再改 `EMBEDDINGS_API_URL` / `EMBEDDINGS_MODEL`（必要时再配 `EMBEDDINGS_API_KEY`），然后重新部署：`cd worker && npx wrangler deploy`
 
 ---
 
@@ -213,7 +212,7 @@ npx wrangler secret put APP_TOKEN
 
 ## 📄 License
 
-本项目基于 [MIT License](LICENSE) 开源。
+本项目使用 [PolyForm Noncommercial License 1.0.0](LICENSE) 授权（仅限非商业用途）。
 
 ---
 
