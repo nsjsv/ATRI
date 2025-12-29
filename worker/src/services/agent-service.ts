@@ -267,6 +267,12 @@ function composeAgentSystemPrompt(params: {
     `- 相识: ${daysTogether}天 | 累计互动: ${params.intimacy || 0}次`,
     timeInfo ? `- 现在的时间是：${timeInfo.localDate} ${timeInfo.clockTime}` : '',
     '',
+    '## 这个人的长期档案（很重要）',
+    '{user_profile_block}',
+    '',
+    '## 我自己的说话自查（很重要，只给我自己看）',
+    '{self_review_block}',
+    '',
     '## 我和眼前这个人',
     '你只能隔着这个设备和对方聊天，见不到本人，所以会更在意每一次对话。',
     `说话时用第一人称"我"，把对方当成真的坐在你面前的人。${nameForPrompt ? `对方叫「${nameForPrompt}」。` : ''}`,
@@ -281,15 +287,12 @@ function composeAgentSystemPrompt(params: {
     ].join('\n');
   }
 
-  const profileText = params.userProfileSnippet?.trim();
-  if (profileText) {
-    basePrompt = `${basePrompt}\n\n## 我对这个人的长期理解\n${profileText}`;
-  }
+  const profileBlock = String(params.userProfileSnippet || '').trim() || '（暂无）';
+  const selfReviewBlock = String(params.selfReviewSnippet || '').trim() || '（暂无）';
 
-  const selfReviewText = params.selfReviewSnippet?.trim();
-  if (selfReviewText) {
-    basePrompt = `${basePrompt}\n\n## 我自己的说话提醒（只给我自己看，不要直接复述给对方）\n${selfReviewText}`;
-  }
+  basePrompt = basePrompt
+    .replace('{user_profile_block}', profileBlock)
+    .replace('{self_review_block}', selfReviewBlock);
 
   return basePrompt;
 }
@@ -549,14 +552,16 @@ async function runReadDiary(env: Env, userId: string, args: any) {
       return '没有找到相关日记';
     }
 
-    const lines: string[] = [];
+    const lines: string[] = [
+      '提示：以下内容来自亚托莉自己写的第一人称日记；文中的“我”=亚托莉，“你/对方”=用户。'
+    ];
     for (const mem of diaryMems) {
       let snippet = '';
       if (mem.id) {
         const entry = await getDiaryEntryById(env, mem.id);
         snippet = entry?.content || entry?.summary || '';
       }
-      lines.push(`【${mem.date}】${snippet || '无详情'}`);
+      lines.push(`【${mem.date}｜亚托莉日记】${snippet || '无详情'}`);
     }
     return lines.join('\n\n');
   } catch (error) {
@@ -591,7 +596,7 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'read_diary',
-      description: '查阅过去的日记，确认具体事件或细节时调用',
+      description: '查阅过去的日记（亚托莉自己写的第一人称，“我”指亚托莉），确认具体事件或细节时调用',
       parameters: {
         type: 'object',
         properties: {
