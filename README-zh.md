@@ -108,7 +108,7 @@ Published atri-worker (1.0.0)
 | 变量名 | 用途 | 必填 |
 |--------|------|:----:|
 | `OPENAI_API_KEY` | 聊天模型密钥 | ✅ |
-| `EMBEDDINGS_API_KEY` | 向量/嵌入密钥（默认已预置为 SiliconFlow，可自行替换为自己的） | ❌ |
+| `EMBEDDINGS_API_KEY` | 向量/嵌入密钥（可选；默认复用 `OPENAI_API_KEY`） | ❌ |
 | `APP_TOKEN` | 客户端访问令牌，保护 API 不被滥用 | 建议 |
 
 **通过命令行设置：**
@@ -133,7 +133,7 @@ npx wrangler secret put APP_TOKEN
    |--------|------|------|
    | Worker 地址 | `https://atri-worker.xxx.workers.dev` | 部署后获得的地址 |
    | App Token | `你设置的token` | 与后端 `APP_TOKEN` 保持一致 |
-   | 模型 | `gpt-4` | 可按需更换 |
+   | 模型 | `gpt-4o` | 可按需更换 |
 
 3. 返回聊天页面，开始对话 ✨
 
@@ -159,7 +159,7 @@ npx wrangler secret put APP_TOKEN
 ### Q: 日记没有生成
 **A:** 日记在每天 23:59（北京时间）自动生成，需要当天有对话记录。
 
-### Q: 如何使用其他 AI 服务（如 DeepSeek、Claude 等）？
+### Q: 如何使用其他 AI 服务（OpenAI 兼容）？
 **A:** 只要兼容 OpenAI API 格式即可：
 1. 修改 `worker/wrangler.toml` 里的 `OPENAI_API_URL`（以及可选的 `DIARY_API_URL` / `DIARY_MODEL`）为对应服务的地址/模型
 2. 如果向量/嵌入走不同上游，再改 `EMBEDDINGS_API_URL` / `EMBEDDINGS_MODEL`（必要时再配 `EMBEDDINGS_API_KEY`），然后重新部署：`cd worker && npx wrangler deploy`

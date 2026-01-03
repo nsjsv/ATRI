@@ -68,7 +68,6 @@ export type UserStateRecord = {
   userId: string;
   padValues: PadValues;
   intimacy: number;
-  energy: number;
   lastInteractionAt: number;
   updatedAt: number;
 };
@@ -362,7 +361,7 @@ export async function deleteUserSettingsByUser(env: Env, userId: string) {
 
 export async function getUserState(env: Env, userId: string): Promise<UserStateRecord> {
   const row = await env.ATRI_DB.prepare(
-    `SELECT user_id as userId, pad_values as padValues, intimacy, energy, last_interaction_at as lastInteractionAt, updated_at as updatedAt
+    `SELECT user_id as userId, pad_values as padValues, intimacy, last_interaction_at as lastInteractionAt, updated_at as updatedAt
      FROM user_states
      WHERE user_id = ?`
   )
@@ -371,7 +370,6 @@ export async function getUserState(env: Env, userId: string): Promise<UserStateR
       userId: string;
       padValues: string;
       intimacy?: number;
-      energy?: number;
       lastInteractionAt?: number;
       updatedAt?: number;
     }>();
@@ -382,7 +380,6 @@ export async function getUserState(env: Env, userId: string): Promise<UserStateR
       userId,
       padValues: [...DEFAULT_PAD_VALUES],
       intimacy: 0,
-      energy: 100,
       lastInteractionAt: now,
       updatedAt: now
     };
@@ -391,12 +388,13 @@ export async function getUserState(env: Env, userId: string): Promise<UserStateR
   const rawPad = parsePadValues(row.padValues);
   const lastInteraction = Number.isFinite(row.lastInteractionAt) ? Number(row.lastInteractionAt) : now;
   const decayedPad = applyMoodDecay(rawPad, lastInteraction, now);
+  const rawIntimacy = Number.isFinite(row.intimacy) ? Number(row.intimacy) : 0;
+  const decayedIntimacy = applyIntimacyDecay(rawIntimacy, lastInteraction, now);
 
   return {
     userId: row.userId || userId,
     padValues: decayedPad,
-    intimacy: Number.isFinite(row.intimacy) ? Number(row.intimacy) : 0,
-    energy: Number.isFinite(row.energy) ? Number(row.energy) : 100,
+    intimacy: decayedIntimacy,
     lastInteractionAt: lastInteraction,
     updatedAt: Number.isFinite(row.updatedAt) ? Number(row.updatedAt) : now
   };
@@ -417,15 +415,30 @@ function applyMoodDecay(pad: PadValues, lastInteractionAt: number, now: number):
   ];
 }
 
+function applyIntimacyDecay(intimacy: number, lastInteractionAt: number, now: number) {
+  if (!Number.isFinite(intimacy)) return 0;
+
+  const daysSince = (now - lastInteractionAt) / 86400000;
+  const steps = Math.floor(daysSince / 3);
+  if (steps <= 0) return clampIntimacy(intimacy);
+
+  const current = clampIntimacy(intimacy);
+  if (current === 0) return 0;
+
+  if (current > 0) {
+    return clampIntimacy(Math.max(0, current - steps));
+  }
+  return clampIntimacy(Math.min(0, current + steps));
+}
+
 export async function saveUserState(env: Env, state: UserStateRecord) {
   const payload = normalizeUserState(state);
   await env.ATRI_DB.prepare(
-    `INSERT INTO user_states (user_id, pad_values, intimacy, energy, last_interaction_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO user_states (user_id, pad_values, intimacy, last_interaction_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        pad_values = excluded.pad_values,
        intimacy = excluded.intimacy,
-       energy = excluded.energy,
        last_interaction_at = excluded.last_interaction_at,
        updated_at = excluded.updated_at`
   )
@@ -433,7 +446,6 @@ export async function saveUserState(env: Env, state: UserStateRecord) {
       payload.userId,
       JSON.stringify(payload.padValues),
       payload.intimacy,
-      payload.energy,
       payload.lastInteractionAt,
       payload.updatedAt
     )
@@ -480,7 +492,9 @@ export async function updateIntimacyState(env: Env, params: {
 }) {
   const current = params.currentState ?? await getUserState(env, params.userId);
   const now = typeof params.touchedAt === 'number' ? params.touchedAt : Date.now();
-  const nextIntimacy = clampIntimacy(current.intimacy + safeInt(params.delta));
+  const delta = clampIntimacyDelta(safeInt(params.delta));
+  const effectiveDelta = applyIntimacyDelta(current.intimacy, delta);
+  const nextIntimacy = clampIntimacy(current.intimacy + effectiveDelta);
   const next: UserStateRecord = {
     ...current,
     intimacy: nextIntimacy,
@@ -525,6 +539,20 @@ export async function listDiaryIdsByUser(env: Env, userId: string) {
     .bind(userId)
     .all<{ id: string }>();
   return (result.results || []).map(row => row.id);
+}
+
+export async function listDiaryDatesByUser(env: Env, userId: string) {
+  const result = await env.ATRI_DB.prepare(
+    `SELECT date
+     FROM diary_entries
+     WHERE user_id = ?
+     ORDER BY date DESC`
+  )
+    .bind(userId)
+    .all<{ date: string }>();
+  return (result.results || [])
+    .map(row => String(row?.date || '').trim())
+    .filter(Boolean);
 }
 
 export async function deleteDiaryEntriesByUser(env: Env, userId: string) {
@@ -594,7 +622,26 @@ function safeInt(value: any) {
 
 function clampIntimacy(value: number) {
   if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.trunc(value));
+  return Math.max(-100, Math.min(100, Math.trunc(value)));
+}
+
+function clampIntimacyDelta(delta: number) {
+  if (!Number.isFinite(delta)) return 0;
+  const n = Math.trunc(delta);
+  if (n > 10) return 10;
+  if (n < -50) return -50;
+  return n;
+}
+
+function applyIntimacyDelta(currentIntimacy: number, delta: number) {
+  if (!delta) return 0;
+
+  // 修复更难：负数时的升温会打折
+  if (delta > 0 && currentIntimacy < 0) {
+    return Math.max(1, Math.round(delta * 0.6));
+  }
+
+  return delta;
 }
 
 function normalizeUserState(state: UserStateRecord): UserStateRecord {
@@ -606,8 +653,7 @@ function normalizeUserState(state: UserStateRecord): UserStateRecord {
       clampPad(state.padValues?.[1] ?? 0),
       clampPad(state.padValues?.[2] ?? 0)
     ],
-    intimacy: Number.isFinite(state.intimacy) ? Number(state.intimacy) : 0,
-    energy: Number.isFinite(state.energy) ? Number(state.energy) : 100,
+    intimacy: clampIntimacy(state.intimacy),
     lastInteractionAt: Number.isFinite(state.lastInteractionAt) ? Number(state.lastInteractionAt) : now,
     updatedAt: Number.isFinite(state.updatedAt) ? Number(state.updatedAt) : now
   };

@@ -8,7 +8,7 @@ sealed class AtriStatus(open val text: String) {
         override val text: String
     ) : AtriStatus(text)
 
-    object Thinking : AtriStatus("思考中")
+    object Thinking : AtriStatus("我整理一下")
 
     companion object {
         fun fromMood(

@@ -65,7 +65,7 @@ class DynamicConfigProvider(private val preferencesStore: PreferencesStore) {
     }
 
     companion object {
-        const val DEFAULT_BASE_URL = "https://your-worker.workers.dev"
+        const val DEFAULT_BASE_URL = "https://example.com"
     }
 }
 

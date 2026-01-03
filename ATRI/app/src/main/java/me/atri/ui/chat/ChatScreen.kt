@@ -553,7 +553,7 @@ fun ChatScreen(
                             start = 16.dp,
                             end = 16.dp,
                             top = 16.dp,
-                            bottom = 120.dp
+                            bottom = 300.dp  // 足够让最后一条消息滑动到屏幕中上部
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -569,31 +569,32 @@ fun ChatScreen(
                             when (item) {
                                 is ChatItem.DateHeaderItem -> DateHeader(label = item.label)
                                 is ChatItem.MessageItem -> {
-                                    if (item.showTimestamp) {
-                                        TimestampText(timestamp = item.message.timestamp)
-                                    }
-                                    MessageBubble(
-                                        message = item.message,
-                                        isLoading = false,
-                                        onLongPress = { pressed ->
-                                            val anchor = listBounds?.let { bounds ->
-                                                val info = listState.layoutInfo.visibleItemsInfo
-                                                    .firstOrNull { it.key == item.message.id }
-                                                info?.let {
-                                                    Rect(
-                                                        left = bounds.left,
-                                                        top = bounds.top + it.offset,
-                                                        right = bounds.right,
-                                                        bottom = bounds.top + it.offset + it.size
-                                                    )
-                                                }
-                                            }
-                                            selectedMessage = SelectedMessageState(pressed, anchor)
-                                        },
-                                        onVersionSwitch = { messageId, versionIndex ->
-                                            viewModel.switchMessageVersion(messageId, versionIndex)
+                                    Column {
+                                        if (item.showTimestamp) {
+                                            TimestampText(timestamp = item.message.timestamp)
                                         }
-                                    )
+                                        MessageBubble(
+                                            message = item.message,
+                                            onLongPress = { pressed ->
+                                                val anchor = listBounds?.let { bounds ->
+                                                    val info = listState.layoutInfo.visibleItemsInfo
+                                                        .firstOrNull { it.key == item.message.id }
+                                                    info?.let {
+                                                        Rect(
+                                                            left = bounds.left,
+                                                            top = bounds.top + it.offset,
+                                                            right = bounds.right,
+                                                            bottom = bounds.top + it.offset + it.size
+                                                        )
+                                                    }
+                                                }
+                                                selectedMessage = SelectedMessageState(pressed, anchor)
+                                            },
+                                            onVersionSwitch = { messageId, versionIndex ->
+                                                viewModel.switchMessageVersion(messageId, versionIndex)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -601,8 +602,10 @@ fun ChatScreen(
                             item { TypingIndicator() }
                         }
                     }
+                }
 
-                    // 输入框区域 - 整体渐变背景
+                // 悬浮输入框 - 叠加在内容上方
+                if (!showWelcome) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -611,12 +614,16 @@ fun ChatScreen(
                                 Brush.verticalGradient(
                                     colors = listOf(
                                         Color.Transparent,
+                                        MaterialTheme.colorScheme.background.copy(alpha = 0.8f),
                                         MaterialTheme.colorScheme.background
-                                    )
+                                    ),
+                                    startY = 0f,
+                                    endY = 150f
                                 )
                             )
                             .imePadding()
                             .navigationBarsPadding()
+                            .padding(bottom = 8.dp)
                     ) {
                         InputBar(
                             enabled = !uiState.isLoading,
@@ -629,6 +636,7 @@ fun ChatScreen(
                         )
                     }
                 }
+
                 uiState.error?.let { error ->
                     AtriErrorBanner(
                         message = error,

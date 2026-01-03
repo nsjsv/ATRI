@@ -242,7 +242,7 @@
   "logId": "log-uuid",
   "userName": "小明",
   "clientTimeIso": "2025-01-15T22:30:00+08:00",
-  "modelKey": "gpt-4",
+  "modelKey": "gpt-4o",
   "attachments": []
 }
 ```
@@ -353,10 +353,10 @@ account_id = "your-account-id"
 [vars]
 OPENAI_API_URL = "https://api.openai.com/v1"
 DIARY_API_URL = "https://api.openai.com/v1"          # 可选：日记专用上游
-DIARY_MODEL = "gpt-4"
-EMBEDDINGS_API_URL = "https://api.siliconflow.cn/v1"     # 默认：向量/嵌入上游（OpenAI 兼容）
+DIARY_MODEL = "gpt-4o"
+EMBEDDINGS_API_URL = "https://api.openai.com/v1"        # 可选：向量/嵌入上游（OpenAI 兼容）
 EMBEDDINGS_API_KEY = "your-embeddings-key"              # 可选：覆盖默认（也可用 wrangler secret）
-EMBEDDINGS_MODEL = "BAAI/bge-m3"                        # 默认 1024 维
+EMBEDDINGS_MODEL = "gpt-4o"
 
 [[vectorize]]
 binding = "VECTORIZE"

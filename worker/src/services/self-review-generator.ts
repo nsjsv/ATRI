@@ -3,22 +3,12 @@ import { Env, CHAT_MODEL } from '../types';
 import { sanitizeText } from '../utils/sanitize';
 import { callChatCompletions, ChatCompletionError } from './openai-service';
 
-const selfReviewPrompts: any = (prompts as any).selfReview || {};
-
-const DIMENSIONS = ['语气', '长度', '提问方式', '共情回应', '主动程度', '口癖重复'] as const;
-type Dimension = (typeof DIMENSIONS)[number];
-
-export type AtriSelfReviewRow = {
-  "维度": Dimension;
-  "今天": string;
-  "问题": string;
-  "改进": string;
-};
+const stickyNotePrompts: any = (prompts as any).stickyNote || {};
 
 export type AtriSelfReviewPayload = {
   "日期": string;
   "认识天数": number;
-  "表格": AtriSelfReviewRow[];
+  "便签": string[];
 };
 
 export type AtriSelfReviewGenerationResult = {
@@ -37,14 +27,14 @@ export async function generateAtriSelfReview(env: Env, params: {
 }): Promise<AtriSelfReviewGenerationResult> {
   const transcript = sanitizeText(params.transcript || '').trim();
   const diary = sanitizeText(params.diaryContent || '').trim();
-  const previous = sanitizeText(params.previousSelfReview || '').trim() || '(无旧自查表)';
+  const previous = sanitizeText(params.previousSelfReview || '').trim() || '(无旧便签)';
 
   if (!transcript && !diary) {
     throw new Error('empty_self_review_material');
   }
 
-  const systemPrompt = String(selfReviewPrompts.system || '').trim();
-  const userTemplate = String(selfReviewPrompts.userTemplate || '').trim();
+  const systemPrompt = String(stickyNotePrompts.system || '').trim();
+  const userTemplate = String(stickyNotePrompts.userTemplate || '').trim();
   const userPrompt = userTemplate
     .replace(/\{date\}/g, params.date)
     .replace(/\{daysTogether\}/g, String(Math.max(1, Math.trunc(params.daysTogether || 1))))
@@ -105,12 +95,7 @@ function emptyPayload(date: string, daysTogether: number): AtriSelfReviewPayload
   return {
     "日期": date,
     "认识天数": Math.max(1, Math.trunc(daysTogether || 1)),
-    "表格": DIMENSIONS.map((dim) => ({
-      "维度": dim,
-      "今天": "",
-      "问题": "",
-      "改进": ""
-    }))
+    "便签": []
   };
 }
 
@@ -138,29 +123,23 @@ function parseSelfReviewJson(raw: string): any {
 }
 
 function normalizeSelfReviewPayload(input: any, base: AtriSelfReviewPayload): AtriSelfReviewPayload {
-  const rows = Array.isArray(input?.["表格"]) ? input["表格"] : [];
-  const map = new Map<Dimension, AtriSelfReviewRow>();
-  for (const row of base["表格"]) {
-    map.set(row["维度"], { ...row });
-  }
-
-  for (const rawRow of rows) {
-    const dim = String(rawRow?.["维度"] || '').trim() as Dimension;
-    if (!map.has(dim)) continue;
-    const target = map.get(dim)!;
-    target["今天"] = cleanCell(rawRow?.["今天"], 80);
-    target["问题"] = cleanCell(rawRow?.["问题"], 80);
-    target["改进"] = cleanCell(rawRow?.["改进"], 120);
+  const list = Array.isArray(input?.["便签"]) ? input["便签"] : [];
+  const notes: string[] = [];
+  for (const item of list) {
+    const text = cleanCell(item, 40);
+    if (!text) continue;
+    notes.push(text);
+    if (notes.length >= 3) break;
   }
 
   return {
     ...base,
-    "表格": DIMENSIONS.map((dim) => map.get(dim)!).filter(Boolean)
+    "便签": notes
   };
 }
 
 function cleanCell(value: any, limit: number) {
-  return String(value || '').trim().slice(0, limit);
+  return String(value || '').trim().replace(/\s+/g, ' ').slice(0, limit);
 }
 
 function extractMessageContent(choice: any): string {
@@ -187,4 +166,3 @@ function extractMessageContent(choice: any): string {
   }
   return '';
 }
-

@@ -176,9 +176,6 @@ class ChatRepository(
                 message = existing,
                 newContent = sanitized.content,
                 newAttachments = sanitized.attachments,
-                thinkingContent = sanitized.thinkingContent,
-                thinkingStartTime = sanitized.thinkingStartTime,
-                thinkingEndTime = sanitized.thinkingEndTime,
                 mood = moodJson
             )
         }
@@ -202,9 +199,6 @@ class ChatRepository(
         id: String,
         newContent: String,
         newAttachments: List<Attachment>? = null,
-        thinkingContent: String? = null,
-        thinkingStartTime: Long? = null,
-        thinkingEndTime: Long? = null,
         syncRemote: Boolean = false
     ) = withContext(Dispatchers.IO) {
         val message = messageDao.getMessageById(id) ?: return@withContext
@@ -213,10 +207,7 @@ class ChatRepository(
         val updated = saveMessageVersion(
             message = message,
             newContent = newContent,
-            newAttachments = attachmentsToUse,
-            thinkingContent = thinkingContent,
-            thinkingStartTime = thinkingStartTime,
-            thinkingEndTime = thinkingEndTime
+            newAttachments = attachmentsToUse
         )
 
         if (syncRemote) {
@@ -283,9 +274,6 @@ class ChatRepository(
         message: MessageEntity,
         newContent: String,
         newAttachments: List<Attachment>,
-        thinkingContent: String? = null,
-        thinkingStartTime: Long? = null,
-        thinkingEndTime: Long? = null,
         mood: String? = null
     ): MessageEntity {
         val existingVersions = messageVersionDao.getVersions(message.id)
@@ -319,18 +307,12 @@ class ChatRepository(
                 attachments = newAttachments,
                 currentVersionIndex = newVersionIndex,
                 totalVersions = newVersionIndex + 1,
-                thinkingContent = thinkingContent,
-                thinkingStartTime = thinkingStartTime,
-                thinkingEndTime = thinkingEndTime,
                 mood = mood
             )
         } else {
             message.copy(
                 content = newContent,
                 attachments = newAttachments,
-                thinkingContent = thinkingContent,
-                thinkingStartTime = thinkingStartTime,
-                thinkingEndTime = thinkingEndTime,
                 mood = mood
             )
         }

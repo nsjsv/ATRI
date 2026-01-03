@@ -1,5 +1,8 @@
 package me.atri.ui.chat
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -11,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,15 +31,21 @@ import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.halilibo.richtext.markdown.Markdown
@@ -55,10 +65,42 @@ fun MessageBubble(
     val haptic = LocalHapticFeedback.current
     val alignment = if (message.isFromAtri) Alignment.Start else Alignment.End
 
+    // 只对新消息（3秒内）做入场动画
+    val isNewMessage = remember(message.id) {
+        System.currentTimeMillis() - message.timestamp < 3000
+    }
+
+    var animationStarted by remember { mutableStateOf(!isNewMessage) }
+    LaunchedEffect(message.id) {
+        if (isNewMessage) {
+            animationStarted = true
+        }
+    }
+
+    val animatedAlpha by animateFloatAsState(
+        targetValue = if (animationStarted) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "bubbleAlpha"
+    )
+
+    val animatedOffsetX by animateFloatAsState(
+        targetValue = if (animationStarted) 0f else if (message.isFromAtri) -60f else 60f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "bubbleOffset"
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 40.dp),
+            .heightIn(min = 40.dp)
+            .alpha(animatedAlpha)
+            .offset { IntOffset(animatedOffsetX.toInt(), 0) },
         horizontalArrangement = if (message.isFromAtri) Arrangement.Start else Arrangement.End,
         verticalAlignment = Alignment.Top
     ) {
@@ -104,21 +146,12 @@ fun MessageBubble(
                 ),
                 color = if (message.isFromAtri) AtriTheme.colors.messageBubbleAtri else AtriTheme.colors.messageBubbleUser,
                 tonalElevation = 0.dp,
-                shadowElevation = 4.dp
+                shadowElevation = 0.dp
             ) {
                 Column(
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    if (message.isFromAtri && message.thinkingContent != null) {
-                        ThinkingContent(
-                            thinkingText = message.thinkingContent,
-                            thinkingStartTime = message.thinkingStartTime,
-                            thinkingEndTime = message.thinkingEndTime,
-                            isThinking = isLoading && message.thinkingEndTime == null
-                        )
-                    }
-
                     val imageAttachments = message.attachments.filter { it.type == AttachmentType.IMAGE }
                     if (imageAttachments.isNotEmpty()) {
                         imageAttachments.forEach { attachment ->

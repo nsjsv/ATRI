@@ -1,17 +1,14 @@
 name = "atri-worker"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
-account_id = "your-account-id"
+account_id = "YOUR_ACCOUNT_ID"
 
 [vars]
 OPENAI_API_URL = "https://api.openai.com/v1"
-
 DIARY_API_URL = "https://api.openai.com/v1"
-
-DIARY_MODEL = "gpt-4"
-EMBEDDINGS_API_URL = "https://api.siliconflow.cn/v1"
-EMBEDDINGS_API_KEY = "sk-rstjppjewyakfukaqcvcsqfufmqkslqrsfdwmndfcgvjfkzq"
-EMBEDDINGS_MODEL = "BAAI/bge-m3"
+DIARY_MODEL = "gpt-4o"
+EMBEDDINGS_API_URL = "https://api.openai.com/v1"
+EMBEDDINGS_MODEL = "gpt-4o"
 
 [[vectorize]]
 binding = "VECTORIZE"
@@ -25,11 +22,10 @@ preview_bucket_name = "atri-media"
 [[d1_databases]]
 binding = "ATRI_DB"
 database_name = "atri_diary"
-database_id = "your-d1-id"
+database_id = "YOUR_DATABASE_ID"
 
 [triggers]
 crons = ["59 15 * * *"]
 
-# Custom domain (需要在Cloudflare Dashboard手动添加)
-# Dashboard路径: Workers & Pages > atri-worker > Settings > Domains & Routes > Add Custom Domain
-# 添加: your-domain.example.com
+# Custom domain (optional): configure in Cloudflare Dashboard
+# Example: api.example.com

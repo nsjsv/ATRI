@@ -11,6 +11,9 @@ node_modules/
 *.tsbuildinfo
 worker/.wrangler/
 worker/dist/
+worker/dist-dryrun/
+worker/backups/
+worker/.dev.vars
 
 # Android / Gradle
 ATRI/.gradle/

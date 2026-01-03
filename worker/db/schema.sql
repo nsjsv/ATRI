@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS user_states (
   user_id TEXT PRIMARY KEY,
   pad_values TEXT NOT NULL,
   intimacy INTEGER DEFAULT 0,
-  energy INTEGER DEFAULT 100,
   last_interaction_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );

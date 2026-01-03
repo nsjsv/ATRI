@@ -10,14 +10,14 @@ export interface Env {
   DIARY_API_KEY?: string;
   DIARY_API_URL?: string;
   DIARY_MODEL?: string;
-  EMBEDDINGS_API_KEY: string;
-  EMBEDDINGS_API_URL: string;
-  EMBEDDINGS_MODEL: string;
+  EMBEDDINGS_API_KEY?: string;
+  EMBEDDINGS_API_URL?: string;
+  EMBEDDINGS_MODEL?: string;
   ADMIN_API_KEY?: string;
   APP_TOKEN?: string;
 }
 
-export const CHAT_MODEL = 'openai.gpt-5-chat';
+export const CHAT_MODEL = 'gpt-4o';
 export const ATTACHMENT_TYPES = ['image', 'document'] as const;
 export type AttachmentType = (typeof ATTACHMENT_TYPES)[number];
 
@@ -48,9 +48,6 @@ export interface BioChatRequest {
 
 export interface BioChatResponse {
   reply: string;
-  thinkingContent?: string;
-  thinkingStartTime?: number;
-  thinkingEndTime?: number;
 }
 
 // Memory 相关类型

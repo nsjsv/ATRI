@@ -3,6 +3,7 @@ package me.atri.data.api
 import me.atri.data.api.request.ChatRequest
 import me.atri.data.api.request.ConversationDeleteRequest
 import me.atri.data.api.request.ConversationLogRequest
+import me.atri.data.api.request.DiaryRegenerateRequest
 import me.atri.data.api.response.DiaryEntryResponse
 import me.atri.data.api.response.DiaryListResponse
 import me.atri.data.api.response.LastConversationResponse
@@ -56,6 +57,11 @@ interface AtriApiService {
     suspend fun fetchDiaryDetail(
         @Query("userId") userId: String,
         @Query("date") date: String
+    ): Response<DiaryEntryResponse>
+
+    @POST("/diary/regenerate")
+    suspend fun regenerateDiary(
+        @Body request: DiaryRegenerateRequest
     ): Response<DiaryEntryResponse>
 
     @GET("/models")

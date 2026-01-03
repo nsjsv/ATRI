@@ -215,7 +215,7 @@ if errorlevel 1 (
 echo.
 echo [5/6] Setting secrets...
 echo Required: OPENAI_API_KEY
-echo Optional: DIARY_API_KEY, ADMIN_API_KEY, APP_TOKEN, MEDIA_SIGNING_KEY, EMBEDDINGS_API_KEY (override)
+echo Optional: EMBEDDINGS_API_KEY, DIARY_API_KEY, ADMIN_API_KEY, APP_TOKEN, MEDIA_SIGNING_KEY
 echo.
 choice /c YN /m "Set/Update secrets now?"
 if errorlevel 2 goto :deploy
@@ -226,39 +226,38 @@ call npx wrangler secret put OPENAI_API_KEY
 if errorlevel 1 goto :pause_fail
 
 echo.
-choice /c YN /m "Set EMBEDDINGS_API_KEY (optional override)?"
-if errorlevel 1 (
-  call npx wrangler secret put EMBEDDINGS_API_KEY
-  if errorlevel 1 goto :pause_fail
-)
+choice /c YN /m "Set EMBEDDINGS_API_KEY (optional)?"
+if errorlevel 2 goto :secrets_diary
+call npx wrangler secret put EMBEDDINGS_API_KEY
+if errorlevel 1 goto :pause_fail
 
+:secrets_diary
 echo.
 choice /c YN /m "Set DIARY_API_KEY (optional)?"
-if errorlevel 1 (
-  call npx wrangler secret put DIARY_API_KEY
-  if errorlevel 1 goto :pause_fail
-)
+if errorlevel 2 goto :secrets_admin
+call npx wrangler secret put DIARY_API_KEY
+if errorlevel 1 goto :pause_fail
 
+:secrets_admin
 echo.
 choice /c YN /m "Set ADMIN_API_KEY (optional)?"
-if errorlevel 1 (
-  call npx wrangler secret put ADMIN_API_KEY
-  if errorlevel 1 goto :pause_fail
-)
+if errorlevel 2 goto :secrets_app_token
+call npx wrangler secret put ADMIN_API_KEY
+if errorlevel 1 goto :pause_fail
 
+:secrets_app_token
 echo.
 choice /c YN /m "Set APP_TOKEN (recommended, protects API)?"
-if errorlevel 1 (
-  call npx wrangler secret put APP_TOKEN
-  if errorlevel 1 goto :pause_fail
-)
+if errorlevel 2 goto :secrets_media_signing
+call npx wrangler secret put APP_TOKEN
+if errorlevel 1 goto :pause_fail
 
+:secrets_media_signing
 echo.
 choice /c YN /m "Set MEDIA_SIGNING_KEY (optional, signed media URLs)?"
-if errorlevel 1 (
-  call npx wrangler secret put MEDIA_SIGNING_KEY
-  if errorlevel 1 goto :pause_fail
-)
+if errorlevel 2 goto :deploy
+call npx wrangler secret put MEDIA_SIGNING_KEY
+if errorlevel 1 goto :pause_fail
 
 :deploy
 echo.

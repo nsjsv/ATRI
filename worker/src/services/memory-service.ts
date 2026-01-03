@@ -2,12 +2,16 @@ import { Env } from '../types';
 import { sanitizeText } from '../utils/sanitize';
 
 export async function embedText(text: string, env: Env): Promise<number[]> {
-  const base = env.EMBEDDINGS_API_URL || 'https://api.siliconflow.cn/v1';
-  const model = env.EMBEDDINGS_MODEL || 'BAAI/bge-m3';
+  const base = (env.EMBEDDINGS_API_URL || env.OPENAI_API_URL || 'https://api.openai.com/v1').trim();
+  const model = (env.EMBEDDINGS_MODEL || 'gpt-4o').trim();
+  const apiKey = (env.EMBEDDINGS_API_KEY || env.OPENAI_API_KEY || '').trim();
+  if (!apiKey) {
+    throw new Error('Embeddings API key is missing');
+  }
   const res = await fetch(`${base}/embeddings`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${env.EMBEDDINGS_API_KEY}`,
+      'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({ model, input: text })
@@ -28,67 +32,91 @@ export async function searchMemories(
   env: Env,
   userId: string,
   queryText: string,
-  topK = 3
+  topK = 5
 ) {
   const vector = await embedText(queryText, env);
-  const result: any = await (env as any).VECTORIZE.query(vector, { topK, returnMetadata: 'all' });
+  const queryK = Math.max(50, topK * 10);
+  const result: any = await (env as any).VECTORIZE.query(vector, { topK: queryK, returnMetadata: 'all' });
   const matches = Array.isArray(result?.matches) ? result.matches : [];
-  const items = matches
-    .filter((m: any) => m?.metadata?.u === userId)
-    .map((m: any) => ({
-      id: m.id,
-      score: m.score,
-      category: m?.metadata?.c || 'general',
-      key: m?.metadata?.c === 'diary' ? '' : (m?.metadata?.k || ''),
-      value: m?.metadata?.c === 'diary' ? '' : (m?.metadata?.t || m?.metadata?.k || ''),
-      importance: m?.metadata?.imp ?? 5,
-      timestamp: m?.metadata?.ts ?? 0,
-      diaryId: m?.metadata?.d || null,
-      date: m?.metadata?.d || null,
-      mood: m?.metadata?.m || ''
-    }));
-  return items.slice(0, topK);
+
+  const items: any[] = [];
+  const seenDates = new Set<string>();
+
+  for (const m of matches) {
+    if (m?.metadata?.u !== userId) continue;
+
+    const category = m?.metadata?.c || 'general';
+    const date = String(m?.metadata?.d || '').trim();
+    const mood = String(m?.metadata?.m || '').trim();
+    const matchedHighlight = String(m?.metadata?.text || '').trim();
+
+    // 只保留 highlight 记忆（按日期去重）
+    if (category === 'highlight' && date) {
+      if (seenDates.has(date)) continue;
+      seenDates.add(date);
+      items.push({
+        id: m.id,
+        score: m.score,
+        category,
+        date,
+        matchedHighlight,
+        mood,
+        importance: m?.metadata?.imp ?? 6,
+        timestamp: m?.metadata?.ts ?? 0
+      });
+      if (items.length >= topK) break;
+      continue;
+    }
+  }
+
+  return items;
 }
 
-export async function upsertDiaryMemory(
+export async function upsertDiaryHighlightsMemory(
   env: Env,
   params: {
-    entryId?: string;
     userId: string;
-    content: string;
-    date?: string;
+    date: string;
+    highlights: string[];
     mood?: string;
     timestamp?: number;
   }
 ) {
-  const text = sanitizeText(String(params.content || ''));
-  if (!text) {
-    throw new Error('Diary content is empty');
+  const date = String(params.date || '').trim();
+  if (!date) throw new Error('Diary date is missing');
+
+  const rawHighlights = Array.isArray(params.highlights) ? params.highlights : [];
+  const highlights = rawHighlights
+    .map((h) => sanitizeText(String(h || '')).trim().replace(/\s+/g, ' '))
+    .filter(Boolean)
+    .slice(0, 10);
+
+  if (!highlights.length) {
+    throw new Error('Diary highlights are empty');
   }
-  const date = params.date || '';
-  if (!date) {
-    throw new Error('Diary date is missing');
-  }
-  const values = await embedText(text, env);
-  const entryId = params.entryId || `diary:${params.userId}:${date}`;
-  const metadata = {
+
+  const metadataBase = {
     u: params.userId,
-    c: 'diary',
+    c: 'highlight',
     d: date,
     m: params.mood || '',
     imp: 6,
     ts: params.timestamp ?? Date.now()
   };
-  await (env as any).VECTORIZE.upsert([{ id: entryId, values, metadata }]);
-  return {
-    id: entryId,
-    category: metadata.c,
-    importance: metadata.imp,
-    timestamp: metadata.ts,
-    userId: metadata.u,
-    diaryId: metadata.d,
-    date: metadata.d
-  };
+
+  const records: Array<{ id: string; values: number[]; metadata: any }> = [];
+  for (let i = 0; i < highlights.length; i++) {
+    const text = highlights[i];
+    const values = await embedText(text, env);
+    records.push({
+      id: `hl:${params.userId}:${date}:${i}`,
+      values,
+      metadata: { ...metadataBase, i, text }
+    });
+  }
+
+  await (env as any).VECTORIZE.upsert(records);
+  return { count: records.length };
 }
 
 export async function deleteDiaryVectors(env: Env, ids: string[]) {

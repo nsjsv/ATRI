@@ -111,7 +111,7 @@ Published atri-worker (1.0.0)
 | Secret | Description | Required |
 |--------|-------------|:--------:|
 | `OPENAI_API_KEY` | Chat model API key | ✅ |
-| `EMBEDDINGS_API_KEY` | Embeddings key (pre-filled for SiliconFlow by default; replace with your own if needed) | ❌ |
+| `EMBEDDINGS_API_KEY` | Embeddings API key (optional; defaults to `OPENAI_API_KEY`) | ❌ |
 | `APP_TOKEN` | App access token to protect API | Recommended |
 
 **Set via command line:**
@@ -134,7 +134,7 @@ Download the pre-built APK: [`app-debug.apk`](app-debug.apk), or build from sour
    |---------|---------|-------------|
    | Worker URL | `https://atri-worker.xxx.workers.dev` | Your deployed Worker URL |
    | App Token | `your-token` | Must match backend `APP_TOKEN` |
-   | Model | `gpt-4` | Can be changed as needed |
+   | Model | `gpt-4o` | Can be changed as needed |
 
 3. **Start chatting!**
 
@@ -160,7 +160,7 @@ Download the pre-built APK: [`app-debug.apk`](app-debug.apk), or build from sour
 ### Q: Diary not generating
 **A:** Diaries are generated at 23:59 Beijing time daily. There must be conversation records for that day.
 
-### Q: How to use other AI services (DeepSeek, Claude, etc.)?
+### Q: How to use other AI services (OpenAI-compatible)?
 **A:** Any OpenAI-compatible API works:
 1. Edit `OPENAI_API_URL` (and optionally `DIARY_API_URL` / `DIARY_MODEL`) in `worker/wrangler.toml` to your provider's URL/model
 2. If embeddings use a different provider, edit `EMBEDDINGS_API_URL` / `EMBEDDINGS_MODEL` (and `EMBEDDINGS_API_KEY` if needed), then redeploy: `cd worker && npx wrangler deploy`

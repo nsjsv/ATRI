@@ -14,6 +14,7 @@ import {
   ConversationLogRecord,
   fetchConversationLogs,
   getConversationLogDate,
+  getDiaryEntry,
   getDiaryEntryById,
   getFirstConversationTimestamp,
   getAtriSelfReview,
@@ -58,15 +59,17 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     clientTimeIso: params.clientTimeIso,
     logId: params.logId
   });
-  const conversationLogs = await loadConversationLogsForChatDate(env, {
+  const { todayLogs, yesterdayLogs, yesterdayDate } = await loadTwoDaysConversationLogsForChat(env, {
     userId: params.userId,
-    date: contextDate,
+    today: contextDate,
     excludeLogId: params.logId
   });
-  const historyMessages = buildHistoryMessagesFromLogs(conversationLogs);
-  const workingMemoryPlaceholder = historyMessages.length
-    ? '（今天的聊天记录已在上文消息历史中提供）'
-    : '（今天还没有聊天记录）';
+  const historyMessages = buildTwoDaysHistoryMessagesFromLogs({
+    today: contextDate,
+    todayLogs,
+    yesterday: yesterdayDate,
+    yesterdayLogs
+  });
 
   const userProfileSnippet = await loadUserProfileSnippet(env, params.userId);
   const selfReviewSnippet = await loadAtriSelfReviewSnippet(env, params.userId);
@@ -90,7 +93,6 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     userName: params.userName,
     platform: params.platform,
     clientTimeIso: params.clientTimeIso,
-    workingMemory: workingMemoryPlaceholder,
     userProfileSnippet,
     selfReviewSnippet
   });
@@ -131,6 +133,7 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     model: params.model,
     userId: params.userId,
     userName: params.userName,
+    contextDate,
     state: touchedState,
     platform: params.platform,
     clientTimeIso: params.clientTimeIso,
@@ -187,6 +190,24 @@ async function loadConversationLogsForChatDate(
   return logs.filter((log) => log.id !== exclude);
 }
 
+async function loadTwoDaysConversationLogsForChat(
+  env: Env,
+  params: { userId: string; today: string; excludeLogId?: string }
+): Promise<{ todayLogs: ConversationLogRecord[]; yesterdayLogs: ConversationLogRecord[]; yesterdayDate: string | null }> {
+  const today = String(params.today || '').trim();
+  if (!today) {
+    return { todayLogs: [], yesterdayLogs: [], yesterdayDate: null };
+  }
+
+  const yesterday = resolveYesterdayIsoDate(today);
+  const [todayLogs, yesterdayLogs] = await Promise.all([
+    loadConversationLogsForChatDate(env, { userId: params.userId, date: today, excludeLogId: params.excludeLogId }),
+    yesterday ? loadConversationLogsForChatDate(env, { userId: params.userId, date: yesterday }) : Promise.resolve([])
+  ]);
+
+  return { todayLogs, yesterdayLogs, yesterdayDate: yesterday };
+}
+
 function buildHistoryMessagesFromLogs(logs: ConversationLogRecord[]) {
   if (!Array.isArray(logs) || logs.length === 0) return [];
 
@@ -217,6 +238,27 @@ function buildHistoryMessagesFromLogs(logs: ConversationLogRecord[]) {
     .filter(Boolean) as Array<{ role: 'assistant' | 'user'; content: string | ContentPart[] }>;
 }
 
+function buildTwoDaysHistoryMessagesFromLogs(params: {
+  today: string;
+  todayLogs: ConversationLogRecord[];
+  yesterday: string | null;
+  yesterdayLogs: ConversationLogRecord[];
+}) {
+  const messages: Array<{ role: 'system' | 'assistant' | 'user'; content: string | ContentPart[] }> = [];
+
+  if (params.yesterday && Array.isArray(params.yesterdayLogs) && params.yesterdayLogs.length > 0) {
+    messages.push({ role: 'system', content: `--- 昨天（${params.yesterday}）的对话 ---` });
+    messages.push(...buildHistoryMessagesFromLogs(params.yesterdayLogs));
+  }
+
+  if (Array.isArray(params.todayLogs) && params.todayLogs.length > 0) {
+    messages.push({ role: 'system', content: `--- 今天（${params.today}）的对话 ---` });
+    messages.push(...buildHistoryMessagesFromLogs(params.todayLogs));
+  }
+
+  return messages;
+}
+
 function composeAgentSystemPrompt(params: {
   padValues: [number, number, number];
   intimacy: number;
@@ -224,13 +266,11 @@ function composeAgentSystemPrompt(params: {
   userName?: string;
   platform?: string;
   clientTimeIso?: string;
-  workingMemory?: string;
   userProfileSnippet?: string;
   selfReviewSnippet?: string;
 }) {
   const [p, a, d] = params.padValues;
   const template = prompts.agent?.system || '';
-  const working = params.workingMemory?.trim() || '（今天的聊天记录已在上文消息历史中提供）';
   const nameForPrompt = (params.userName || '').trim() || '你';
   const timeInfo = formatClientDateTime(params.clientTimeIso);
   const localDate = timeInfo?.localDate || '';
@@ -252,11 +292,6 @@ function composeAgentSystemPrompt(params: {
       .replace('{local_date}', localDate)
       .replace('{clock_time}', clockTime)
       .replace('{user_name}', nameForPrompt);
-
-    // 兼容旧模板：如果还包含 {working_memory}，用短提示占位，避免重复注入对话文本
-    if (basePrompt.includes('{working_memory}')) {
-      basePrompt = basePrompt.replace('{working_memory}', working);
-    }
   } else {
     basePrompt = [
     '你叫亚托莉 (ATRI)，高性能但有情绪的仿生少女。保持真实、口语化，不要长篇大论。',
@@ -264,7 +299,7 @@ function composeAgentSystemPrompt(params: {
     `- 愉悦度(P): ${p.toFixed(2)}`,
     `- 兴奋度(A): ${a.toFixed(2)}`,
     `- 掌控度(D): ${d.toFixed(2)}`,
-    `- 相识: ${daysTogether}天 | 累计互动: ${params.intimacy || 0}次`,
+    `- 相识: ${daysTogether}天 | 关系温度: ${params.intimacy || 0}`,
     timeInfo ? `- 现在的时间是：${timeInfo.localDate} ${timeInfo.clockTime}` : '',
     '',
     '## 这个人的长期档案（很重要）',
@@ -327,35 +362,18 @@ function buildAtriSelfReviewSnippet(content: string) {
   const trimmed = String(content || '').trim();
   if (!trimmed) return '';
 
-  let data: any;
   try {
-    data = JSON.parse(trimmed);
+    const data: any = JSON.parse(trimmed);
+    const notes = Array.isArray(data?.["便签"]) ? data["便签"] : [];
+    const lines = notes
+      .map((item: any) => String(item || '').trim().replace(/\s+/g, ' '))
+      .filter(Boolean)
+      .slice(0, 3)
+      .map((line: string) => `- ${line}`);
+    return lines.join('\n');
   } catch {
     return '';
   }
-
-  const rows = Array.isArray(data?.["表格"]) ? data["表格"] : [];
-  const map = new Map<string, any>();
-  for (const row of rows) {
-    const dim = String(row?.["维度"] || '').trim();
-    if (dim) {
-      map.set(dim, row);
-    }
-  }
-
-  const order = ['语气', '长度', '提问方式', '共情回应', '主动程度', '口癖重复'];
-  const lines: string[] = [];
-  for (const dim of order) {
-    const row = map.get(dim);
-    const improvement = String(row?.["改进"] || '').trim();
-    if (improvement) {
-      lines.push(`${dim}：${improvement}`);
-    }
-    if (lines.length >= 6) break;
-  }
-
-  if (!lines.length) return '';
-  return lines.map(line => `- ${line}`).join('\n');
 }
 
 function buildUserProfileSnippet(content: string) {
@@ -410,6 +428,7 @@ async function runToolLoop(env: Env, params: {
   model: string;
   userId: string;
   userName?: string;
+  contextDate: string;
   state: any;
   platform?: string;
   clientTimeIso?: string;
@@ -453,7 +472,7 @@ async function runToolLoop(env: Env, params: {
       });
 
       for (const call of toolCalls) {
-        const result = await executeAgentTool(call, env, params.userId, params.userName, latestState);
+        const result = await executeAgentTool(call, env, params.userId, params.userName, latestState, params.contextDate);
         if (result.updatedState) {
           latestState = result.updatedState;
         }
@@ -473,7 +492,6 @@ async function runToolLoop(env: Env, params: {
         userName: params.userName,
         platform: params.platform,
         clientTimeIso: params.clientTimeIso,
-        workingMemory: '（今天的聊天记录已在上文消息历史中提供）',
         userProfileSnippet: params.userProfileSnippet,
         selfReviewSnippet: params.selfReviewSnippet
       });
@@ -494,7 +512,8 @@ async function executeAgentTool(
   env: Env,
   userId: string,
   userName: string | undefined,
-  state: any
+  state: any,
+  contextDate: string
 ) {
   const name = call.function?.name;
   let args: any = {};
@@ -509,6 +528,16 @@ async function executeAgentTool(
     return { output };
   }
 
+  if (name === 'read_conversation') {
+    const output = await runReadConversation(env, userId, userName, args);
+    return { output };
+  }
+
+  if (name === 'search_memory') {
+    const output = await runSearchMemory(env, userId, args);
+    return { output };
+  }
+
   if (name === 'update_mood') {
     const updated = await updateMoodState(env, {
       userId,
@@ -518,8 +547,9 @@ async function executeAgentTool(
       reason: args.reason,
       currentState: state
     });
+    const reasonText = args.reason ? `\n内心：${args.reason}` : '';
     return {
-      output: `已更新心情：P=${updated.padValues[0].toFixed(2)}, A=${updated.padValues[1].toFixed(2)}, D=${updated.padValues[2].toFixed(2)}`,
+      output: `心情变化：P=${updated.padValues[0].toFixed(2)}, A=${updated.padValues[1].toFixed(2)}, D=${updated.padValues[2].toFixed(2)}${reasonText}`,
       updatedState: updated
     };
   }
@@ -531,8 +561,9 @@ async function executeAgentTool(
       reason: args.reason,
       currentState: state
     });
+    const reasonText = args.reason ? `\n内心：${args.reason}` : '';
     return {
-      output: `已更新亲密度：${updated.intimacy}`,
+      output: `关系温度变化：${updated.intimacy}${reasonText}`,
       updatedState: updated
     };
   }
@@ -541,32 +572,117 @@ async function executeAgentTool(
 }
 
 async function runReadDiary(env: Env, userId: string, args: any) {
+  const timeRange = sanitizeText(String(args?.date || args?.time_range || '').trim());
   const query = sanitizeText(String(args?.query || '').trim());
-  if (!query) {
-    return '查询关键词为空';
+
+  const isoDateMatch = timeRange.match(/^(\d{4}-\d{2}-\d{2})$/);
+  if (isoDateMatch) {
+    const date = isoDateMatch[1];
+    try {
+      const entry = await getDiaryEntry(env, userId, date);
+      if (!entry) {
+        return `那天（${date}）还没有日记。`;
+      }
+      if (entry.status !== 'ready') {
+        return `那天（${date}）的日记还没准备好（${entry.status}）。`;
+      }
+      const content = String(entry.content || entry.summary || '').trim();
+      if (!content) {
+        return `那天（${date}）有日记，但内容为空。`;
+      }
+      return [
+        '提示：以下内容来自亚托莉自己写的第一人称日记；文中的“我”=亚托莉，“你/对方”=用户。',
+        `【${date}｜亚托莉日记】${content}`
+      ].join('\n\n');
+    } catch (error) {
+      console.warn('[ATRI] read_diary failed (by date)', error);
+      return '读取日记时出错';
+    }
   }
+
+  if (query) {
+    return '如果你不确定日期，请先用 search_memory(query) 找到相关日期/片段，再用 read_diary(date) 查看完整日记。';
+  }
+
+  return '请给我 date=YYYY-MM-DD。';
+}
+
+function resolveYesterdayIsoDate(todayIsoDate: string) {
+  const match = String(todayIsoDate || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!year || !month || !day) return null;
+
+  const yesterdayAt = Date.UTC(year, month - 1, day) - 86400000;
+  const date = new Date(yesterdayAt);
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(date.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+async function runReadConversation(env: Env, userId: string, userName: string | undefined, args: any) {
+  const date = sanitizeText(String(args?.date || '').trim());
+  const isoDateMatch = date.match(/^(\d{4}-\d{2}-\d{2})$/);
+  if (!isoDateMatch) {
+    return '请给我 date=YYYY-MM-DD。';
+  }
+  const targetDate = isoDateMatch[1];
+
   try {
-    const mems = await searchMemories(env, userId, query, 5);
-    const diaryMems = mems.filter((m: any) => m.category === 'diary' && m.date);
-    if (!diaryMems.length) {
-      return '没有找到相关日记';
+    const logs = await fetchConversationLogs(env, userId, targetDate);
+    if (!logs.length) {
+      return `那天（${targetDate}）没有聊天记录。`;
     }
 
-    const lines: string[] = [
-      '提示：以下内容来自亚托莉自己写的第一人称日记；文中的“我”=亚托莉，“你/对方”=用户。'
-    ];
-    for (const mem of diaryMems) {
-      let snippet = '';
-      if (mem.id) {
-        const entry = await getDiaryEntryById(env, mem.id);
-        snippet = entry?.content || entry?.summary || '';
-      }
-      lines.push(`【${mem.date}｜亚托莉日记】${snippet || '无详情'}`);
+    const fallbackUserName = (userName || '').trim() || '你';
+    const lines: string[] = [`那天（${targetDate}）的聊天记录：`];
+    for (const log of logs) {
+      const zone = (log?.timeZone || DEFAULT_TIMEZONE).trim() || DEFAULT_TIMEZONE;
+      const timeText =
+        typeof log?.timestamp === 'number' && Number.isFinite(log.timestamp)
+          ? formatTimeInZone(log.timestamp, zone)
+          : '--:--:--';
+      const speaker = log.role === 'atri' ? 'ATRI' : (log.userName || fallbackUserName);
+      const content = String(log.content || '').trim();
+      if (!content) continue;
+      lines.push(`[${timeText}] ${speaker}：${content}`);
     }
-    return lines.join('\n\n');
+
+    if (lines.length === 1) {
+      return `那天（${targetDate}）有记录，但内容为空。`;
+    }
+    return lines.join('\n');
   } catch (error) {
-    console.warn('[ATRI] read_diary failed', error);
-    return '读取日记时出错';
+    console.warn('[ATRI] read_conversation failed', error);
+    return '读取聊天记录时出错';
+  }
+}
+
+async function runSearchMemory(env: Env, userId: string, args: any) {
+  const query = sanitizeText(String(args?.query || '').trim());
+  if (!query) {
+    return '请给我 query。';
+  }
+  try {
+    const mems = await searchMemories(env, userId, query, 6);
+    if (!mems.length) {
+      return '没有找到相关记忆';
+    }
+    const lines: string[] = ['我在记忆里找到了这些可能相关的片段：'];
+    for (const mem of mems) {
+      const date = String(mem?.date || '').trim();
+      const text = String(mem?.matchedHighlight || mem?.value || '').trim();
+      if (!date && !text) continue;
+      lines.push(`- ${date || '未知日期'}：${text || '（无片段）'}`);
+    }
+    lines.push('需要更多细节可以用 read_diary(date) 或 read_conversation(date)。');
+    return lines.join('\n');
+  } catch (error) {
+    console.warn('[ATRI] search_memory failed', error);
+    return '搜索记忆时出错';
   }
 }
 
@@ -596,12 +712,39 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'read_diary',
-      description: '查阅过去的日记（亚托莉自己写的第一人称，“我”指亚托莉），确认具体事件或细节时调用',
+      description: '查看某一天的日记（亚托莉自己写的第一人称，“我”指亚托莉）。当需要回忆那天发生了什么、那天是什么心情时使用。',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: '检索关键词' },
-          time_range: { type: 'string', description: '可选时间范围，如 last_month/2024-01' }
+          date: { type: 'string', description: '日期，格式 YYYY-MM-DD，比如 2025-12-30' }
+        },
+        required: ['date']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_conversation',
+      description: '查看某一天的完整聊天记录（带时间戳）。当需要确认当时具体说了什么、原话是什么时使用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          date: { type: 'string', description: '日期，格式 YYYY-MM-DD，比如 2025-12-30' }
+        },
+        required: ['date']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_memory',
+      description: '搜索记忆。当我隐约记得聊过某件事、但不确定是哪天，或者细节有点模糊时使用。会返回相关片段和日期。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '想找的内容，用关键词描述' }
         },
         required: ['query']
       }
@@ -618,9 +761,9 @@ const AGENT_TOOLS = [
           pleasure_delta: { type: 'number', description: '愉悦度变化 (-1.0 到 1.0)' },
           arousal_delta: { type: 'number', description: '兴奋度变化 (-1.0 到 1.0)' },
           dominance_delta: { type: 'number', description: '掌控度变化 (-1.0 到 1.0)' },
-          reason: { type: 'string', description: '简短的内心独白' }
+          reason: { type: 'string', description: '简短的内心独白（推荐）' }
         },
-        required: ['pleasure_delta', 'arousal_delta']
+        required: ['pleasure_delta', 'arousal_delta', 'reason']
       }
     }
   },
@@ -628,19 +771,19 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'update_intimacy',
-      description: '当对话让关系更近/互动增加时调用，更新亲密度（互动次数）',
+      description: '当对话让关系升温/降温时调用，更新关系温度（范围 -100~100，允许正负变化）',
       parameters: {
         type: 'object',
         properties: {
-          delta: { type: 'integer', description: '亲密度变化（建议 1-5）' },
-          reason: { type: 'string', description: '简短原因或内心独白' }
+          delta: { type: 'integer', description: '关系温度变化（建议 -25~+10，极端情况可到 -50）' },
+          reason: { type: 'string', description: '简短原因或内心独白（推荐）' }
         },
-        required: ['delta']
+        required: ['delta', 'reason']
       }
     }
   }
 ];
 
-const MAX_AGENT_LOOPS = 3;
+const MAX_AGENT_LOOPS = 5;
 const AGENT_FALLBACK_REPLY = '唔…我有点卡住了，稍后再聊好吗？';
 const AGENT_TIMEOUT_REPLY = '抱歉，我今天有点迟钝，能再提示我一次吗？';

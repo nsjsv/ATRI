@@ -15,7 +15,7 @@ import {
 } from '../services/data-service';
 import { DEFAULT_TIMEZONE, formatDateInZone } from '../utils/date';
 import { generateDiaryFromConversation } from '../services/diary-generator';
-import { upsertDiaryMemory } from '../services/memory-service';
+import { upsertDiaryHighlightsMemory } from '../services/memory-service';
 import { generateUserProfile } from '../services/profile-generator';
 import { generateAtriSelfReview } from '../services/self-review-generator';
 
@@ -51,6 +51,7 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
       const diary = await generateDiaryFromConversation(env, {
         conversation: transcript,
         userName: user.userName || '这个人',
+        date,
         daysSinceLastChat: daysSince,
         modelKey: preferredModel
       });
@@ -66,12 +67,15 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
         status: 'ready'
       });
 
-      await upsertDiaryMemory(env, {
-        entryId: savedEntry.id,
+      await upsertDiaryHighlightsMemory(env, {
         userId: user.userId,
         date,
         mood: diary.mood,
-        content: diary.content,
+        highlights: Array.isArray(diary.highlights) && diary.highlights.length
+          ? diary.highlights
+          : summaryText
+            ? summaryText.split('；').map(s => s.trim()).filter(Boolean).slice(0, 10)
+            : [diary.content],
         timestamp: diary.timestamp
       });
 
@@ -80,7 +84,7 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
         const previousProfile = await getUserProfile(env, user.userId);
         const profile = await generateUserProfile(env, {
           transcript,
-          diaryContent: diary.content,
+          diaryContent: '',
           date,
           userName: user.userName || '这个人',
           previousProfile: previousProfile?.content || '',
@@ -96,7 +100,7 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
         const previousSelfReview = await getAtriSelfReview(env, user.userId);
         const selfReview = await generateAtriSelfReview(env, {
           transcript,
-          diaryContent: diary.content,
+          diaryContent: summaryText,
           date,
           daysTogether,
           userName: user.userName || '这个人',

@@ -12,7 +12,7 @@
   },
   "keywords": ["cloudflare", "worker", "ai"],
   "author": "",
-  "license": "PolyForm-Noncommercial-1.0.0",
+  "license": "MIT",
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241127.0",
     "wrangler": "^3.87.0"

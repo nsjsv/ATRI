@@ -23,7 +23,7 @@ import me.atri.data.db.entity.MessageVersionEntity
         DiaryEntity::class,
         MemoryEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 @TypeConverters(AttachmentTypeConverters::class)
@@ -116,6 +116,45 @@ abstract class AtriDatabase : RoomDatabase() {
             }
         }
 
+        // Migration from version 6 to 7
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 移除 thinking 相关字段（保持数据不丢）
+                db.execSQL("PRAGMA foreign_keys=OFF")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS messages_new (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        content TEXT NOT NULL,
+                        isFromAtri INTEGER NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        attachments TEXT NOT NULL,
+                        isImportant INTEGER NOT NULL,
+                        isDeleted INTEGER NOT NULL,
+                        currentVersionIndex INTEGER NOT NULL,
+                        totalVersions INTEGER NOT NULL,
+                        mood TEXT
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO messages_new (
+                        id, content, isFromAtri, timestamp, attachments,
+                        isImportant, isDeleted, currentVersionIndex, totalVersions, mood
+                    )
+                    SELECT
+                        id, content, isFromAtri, timestamp, attachments,
+                        isImportant, isDeleted, currentVersionIndex, totalVersions, mood
+                    FROM messages
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE messages")
+                db.execSQL("ALTER TABLE messages_new RENAME TO messages")
+                db.execSQL("PRAGMA foreign_keys=ON")
+            }
+        }
+
         fun getInstance(context: Context): AtriDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -128,7 +167,8 @@ abstract class AtriDatabase : RoomDatabase() {
                         MIGRATION_2_3,
                         MIGRATION_3_4,
                         MIGRATION_4_5,
-                        MIGRATION_5_6
+                        MIGRATION_5_6,
+                        MIGRATION_6_7
                     )
                     // 仅在开发阶段保留，生产环境应移除
                     // .fallbackToDestructiveMigration()

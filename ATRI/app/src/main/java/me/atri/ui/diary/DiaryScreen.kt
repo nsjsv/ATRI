@@ -27,6 +27,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -40,6 +42,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,7 +72,7 @@ fun DiaryScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     AnimatedContent(
-        targetState = uiState.selectedEntry,
+        targetState = uiState.selectedEntry?.date,
         transitionSpec = {
             if (targetState != null) {
                 (slideInHorizontally { it } + fadeIn()) togetherWith
@@ -78,12 +83,26 @@ fun DiaryScreen(
             }
         },
         label = "diary_transition"
-    ) { selectedEntry ->
-        if (selectedEntry != null) {
-            DiaryDetailScreen(
-                entry = selectedEntry,
-                onNavigateBack = viewModel::closeDiary
-            )
+    ) { selectedDate ->
+        if (selectedDate != null) {
+            val selectedEntry = uiState.selectedEntry
+                ?: uiState.entries.firstOrNull { it.date == selectedDate }
+            if (selectedEntry != null) {
+                DiaryDetailScreen(
+                    entry = selectedEntry,
+                    errorMessage = uiState.error,
+                    isRegenerating = uiState.isRegeneratingEntry,
+                    onRegenerate = { viewModel.regenerateEntry(it) },
+                    onNavigateBack = viewModel::closeDiary
+                )
+            } else {
+                DiaryListScreen(
+                    uiState = uiState,
+                    onNavigateBack = onNavigateBack,
+                    onRefresh = { viewModel.refresh() },
+                    onOpenDiary = { viewModel.openDiary(it) }
+                )
+            }
         } else {
             DiaryListScreen(
                 uiState = uiState,
@@ -281,11 +300,15 @@ private fun DiaryCard(
 @Composable
 private fun DiaryDetailScreen(
     entry: DiaryEntryDto,
+    errorMessage: String?,
+    isRegenerating: Boolean,
+    onRegenerate: (String) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val scrollState = rememberScrollState()
     val content = entry.content?.ifBlank { null } ?: "这一天还没有生成日记。"
     val wordCount = content.length
+    var showRegenerateConfirm by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -313,14 +336,38 @@ private fun DiaryDetailScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             // 大标题 - 日期
-            Text(
-                text = buildDetailTitle(entry.date),
-                style = MaterialTheme.typography.headlineMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 26.sp
-                ),
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = buildDetailTitle(entry.date),
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 26.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = { showRegenerateConfirm = true },
+                    enabled = !isRegenerating
+                ) {
+                    if (isRegenerating) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Outlined.Refresh,
+                            contentDescription = "重新生成日记",
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -358,6 +405,15 @@ private fun DiaryDetailScreen(
                 }
             }
 
+            errorMessage?.takeIf { it.isNotBlank() }?.let { message ->
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
             Spacer(modifier = Modifier.height(32.dp))
 
             // 正文内容 - 直接显示，无背景框
@@ -371,6 +427,33 @@ private fun DiaryDetailScreen(
 
             Spacer(modifier = Modifier.height(48.dp))
         }
+    }
+
+    if (showRegenerateConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRegenerateConfirm = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRegenerateConfirm = false
+                        onRegenerate(entry.date)
+                    },
+                    enabled = !isRegenerating
+                ) {
+                    Text(if (isRegenerating) "生成中..." else "重新生成")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showRegenerateConfirm = false },
+                    enabled = !isRegenerating
+                ) {
+                    Text("取消")
+                }
+            },
+            title = { Text("重新生成日记") },
+            text = { Text("会覆盖当前日记内容，并更新记忆向量，可能需要一点时间。") }
+        )
     }
 }
 
