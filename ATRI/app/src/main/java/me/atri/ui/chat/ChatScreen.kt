@@ -5,17 +5,22 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -63,6 +68,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -401,9 +407,12 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     var selectedMessage by remember { mutableStateOf<SelectedMessageState?>(null) }
     var listBounds by remember { mutableStateOf<Rect?>(null) }
+    var inputBarHeight by remember { mutableStateOf(0.dp) }
+    var lastImePadding by remember { mutableStateOf(0.dp) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val density = LocalDensity.current
     var pendingScrollIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     val showWelcome = !welcomeDismissed
     val avatarPickerScope = rememberCoroutineScope()
@@ -435,6 +444,29 @@ fun ChatScreen(
             listState.scrollToItem(bounded)
             pendingScrollIndex = null
         }
+    }
+
+    val imeBottomPadding = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val isImeVisible = imeBottomPadding > 0.dp
+    val inputBarBottomSpacing = 8.dp
+    val baseBottomPadding = inputBarHeight + inputBarBottomSpacing + navigationBarPadding
+    val listBottomPadding = if (isImeVisible) {
+        imeBottomPadding + baseBottomPadding
+    } else {
+        baseBottomPadding
+    }
+
+    LaunchedEffect(imeBottomPadding, showWelcome, uiState.displayItems.size) {
+        if (showWelcome || uiState.displayItems.isEmpty()) {
+            lastImePadding = imeBottomPadding
+            return@LaunchedEffect
+        }
+        val delta = imeBottomPadding - lastImePadding
+        if (delta > 0.dp) {
+            listState.scrollBy(with(density) { delta.toPx() })
+        }
+        lastImePadding = imeBottomPadding
     }
 
     ModalNavigationDrawer(
@@ -553,7 +585,7 @@ fun ChatScreen(
                             start = 16.dp,
                             end = 16.dp,
                             top = 16.dp,
-                            bottom = 300.dp  // 足够让最后一条消息滑动到屏幕中上部
+                            bottom = listBottomPadding  // 键盘抬起时预留输入框+键盘高度，收起时保留额外空间
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -625,15 +657,26 @@ fun ChatScreen(
                             .navigationBarsPadding()
                             .padding(bottom = 8.dp)
                     ) {
-                        InputBar(
-                            enabled = !uiState.isLoading,
-                            isProcessing = uiState.isLoading,
-                            reference = uiState.referencedMessage,
-                            onClearReference = { viewModel.clearReferencedAttachments() },
-                            onToggleReferenceAttachment = { url -> viewModel.toggleReferencedAttachment(url) },
-                            onCancelProcessing = { viewModel.cancelSending() },
-                            onSendMessage = { content, attachments -> viewModel.sendMessage(content, attachments) }
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onGloballyPositioned { coordinates ->
+                                    val height = with(density) { coordinates.size.height.toDp() }
+                                    if (height != inputBarHeight) {
+                                        inputBarHeight = height
+                                    }
+                                }
+                        ) {
+                            InputBar(
+                                enabled = !uiState.isLoading,
+                                isProcessing = uiState.isLoading,
+                                reference = uiState.referencedMessage,
+                                onClearReference = { viewModel.clearReferencedAttachments() },
+                                onToggleReferenceAttachment = { url -> viewModel.toggleReferencedAttachment(url) },
+                                onCancelProcessing = { viewModel.cancelSending() },
+                                onSendMessage = { content, attachments -> viewModel.sendMessage(content, attachments) }
+                            )
+                        }
                     }
                 }
 
