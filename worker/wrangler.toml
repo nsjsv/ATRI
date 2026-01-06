@@ -10,6 +10,10 @@ DIARY_MODEL = "gpt-4o"
 EMBEDDINGS_API_URL = "https://api.siliconflow.cn/v1"
 EMBEDDINGS_MODEL = "BAAI/bge-m3"
 
+# Tavily 联网搜索（可选）
+# API Key 通过 secret 设置: npx wrangler secret put TAVILY_API_KEY
+# 注册: https://tavily.com
+
 [[vectorize]]
 binding = "VECTORIZE"
 index_name = "atri-memories"

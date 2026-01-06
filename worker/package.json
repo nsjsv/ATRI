@@ -1,6 +1,6 @@
 {
   "name": "atri-worker",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "ATRI Cloudflare Worker Backend",
   "main": "src/index.ts",
   "scripts": {
