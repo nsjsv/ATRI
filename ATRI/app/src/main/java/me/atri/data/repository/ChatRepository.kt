@@ -36,11 +36,15 @@ import java.time.temporal.ChronoUnit
 import java.util.concurrent.TimeUnit
 import me.atri.data.model.LastConversationInfo
 import me.atri.data.api.response.BioChatResponse
+import me.atri.data.api.response.ConversationPullResponse
 
 data class ChatResult(
     val reply: String,
     val mood: BioChatResponse.Mood?,
-    val intimacy: Int
+    val intimacy: Int,
+    val replyLogId: String? = null,
+    val replyTimestamp: Long? = null,
+    val replyTo: String? = null
 )
 
 class ChatRepository(
@@ -61,6 +65,8 @@ class ChatRepository(
             pattern = "^\\[[^]]+\\]\\s*",
             options = setOf(RegexOption.MULTILINE)
         )
+
+        private const val PULL_SKEW_MS = 2000L
     }
 
     private val mediaHttpClient = OkHttpClient.Builder()
@@ -153,7 +159,12 @@ class ChatRepository(
         }
     }
 
-    suspend fun persistAtriMessage(finalMessage: MessageEntity, mood: BioChatResponse.Mood? = null) = withContext(Dispatchers.IO) {
+    suspend fun persistAtriMessage(
+        finalMessage: MessageEntity,
+        mood: BioChatResponse.Mood? = null,
+        replyTo: String? = null,
+        syncRemote: Boolean = true
+    ) = withContext(Dispatchers.IO) {
         val cleanedContent = cleanTimestampPrefix(finalMessage.content)
         // 将 PAD 状态转换为 JSON 字符串存储
         val moodJson = if (mood != null) {
@@ -182,17 +193,20 @@ class ChatRepository(
 
         markConversationTouched(persisted.timestamp)
 
-        val userId = preferencesStore.ensureUserId()
-        logConversationSafely(
-            logId = persisted.id,
-            userId = userId,
-            userName = null,
-            role = "atri",
-            content = persisted.content,
-            timestamp = persisted.timestamp,
-            attachments = persisted.attachments,
-            mood = persisted.mood
-        )
+        if (syncRemote) {
+            val userId = preferencesStore.ensureUserId()
+            logConversationSafely(
+                logId = persisted.id,
+                userId = userId,
+                userName = null,
+                role = "atri",
+                content = persisted.content,
+                timestamp = persisted.timestamp,
+                attachments = persisted.attachments,
+                mood = persisted.mood,
+                replyTo = replyTo
+            )
+        }
     }
 
     suspend fun editMessage(
@@ -367,7 +381,8 @@ class ChatRepository(
             attachments = requestAttachments.map { it.toPayload() },
             userName = userName.takeIf { it.isNotBlank() },
             clientTimeIso = currentClientTimeIso(),
-            modelKey = preferredModel
+            modelKey = preferredModel,
+            timeZone = zoneId.id
         )
     }
 
@@ -381,10 +396,14 @@ class ChatRepository(
         if (reply.isEmpty()) {
             throw Exception("空回复")
         }
+        val replyTo = body?.replyTo?.trim()?.takeIf { it.isNotBlank() } ?: request.logId
         return ChatResult(
             reply = reply,
             mood = body?.mood,
-            intimacy = body?.intimacy ?: 0
+            intimacy = body?.intimacy ?: 0,
+            replyLogId = body?.replyLogId?.trim()?.takeIf { it.isNotBlank() },
+            replyTimestamp = body?.replyTimestamp,
+            replyTo = replyTo
         )
     }
 
@@ -533,7 +552,8 @@ class ChatRepository(
         content: String,
         timestamp: Long,
         attachments: List<Attachment>,
-        mood: String? = null
+        mood: String? = null,
+        replyTo: String? = null
     ) {
         if (content.isBlank()) return
         val date = Instant.ofEpochMilli(timestamp)
@@ -550,7 +570,8 @@ class ChatRepository(
             userName = userName,
             timeZone = zoneId.id,
             date = date,
-            mood = mood
+            mood = mood,
+            replyTo = replyTo
         )
         runCatching {
             val response = apiService.logConversation(request)
@@ -602,6 +623,102 @@ class ChatRepository(
             .toLocalDate()
             .format(isoFormatter)
         preferencesStore.setLastConversationDate(date)
+    }
+
+    private fun ConversationPullResponse.AttachmentPayload.toAttachment(): Attachment? {
+        val normalizedType = when (type.trim().lowercase()) {
+            AttachmentContract.TYPE_IMAGE -> AttachmentType.IMAGE
+            AttachmentContract.TYPE_DOCUMENT -> AttachmentType.DOCUMENT
+            else -> null
+        } ?: return null
+        val safeUrl = url.trim()
+        if (safeUrl.isBlank()) return null
+        return Attachment(
+            type = normalizedType,
+            url = safeUrl,
+            mime = mime ?: "application/octet-stream",
+            name = name,
+            sizeBytes = sizeBytes
+        )
+    }
+
+    suspend fun syncConversationHistory(limit: Int = 200): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            val token = preferencesStore.appToken.first().trim()
+            val baseUrl = preferencesStore.apiUrl.first().trim()
+            if (token.isBlank() || baseUrl.isBlank()) {
+                return@withContext Result.success(0)
+            }
+
+            val userId = preferencesStore.ensureUserId()
+            val existingIds = messageDao.getMessageIds().toHashSet()
+            val lastLocalTimestamp = messageDao.getRecentMessages(1).firstOrNull()?.timestamp ?: 0L
+
+            var after = if (lastLocalTimestamp > 0L) {
+                (lastLocalTimestamp - PULL_SKEW_MS).coerceAtLeast(0L)
+            } else {
+                0L
+            }
+            var normalizedTimestamp = after
+            var latestTimestamp = lastLocalTimestamp
+            var inserted = 0
+
+            while (true) {
+                val response = apiService.pullConversationLogs(
+                    userId = userId,
+                    after = after,
+                    limit = limit,
+                    role = null
+                )
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(Exception("conversation pull failed: ${response.code()}"))
+                }
+                val logs = response.body()?.logs.orEmpty()
+                if (logs.isEmpty()) break
+
+                logs.forEach { log ->
+                    val id = log.id.trim()
+                    if (id.isBlank() || existingIds.contains(id)) return@forEach
+
+                    val rawTimestamp = if (log.timestamp > 0L) log.timestamp else System.currentTimeMillis()
+                    val timestamp = if (rawTimestamp <= normalizedTimestamp) {
+                        normalizedTimestamp + 1
+                    } else {
+                        rawTimestamp
+                    }
+                    normalizedTimestamp = timestamp
+                    latestTimestamp = maxOf(latestTimestamp, timestamp)
+
+                    val isFromAtri = log.role.trim().lowercase() == "atri"
+                    val content = if (isFromAtri) cleanTimestampPrefix(log.content) else log.content
+                    val attachments = log.attachments.mapNotNull { it.toAttachment() }
+
+                    val message = MessageEntity(
+                        id = id,
+                        content = content,
+                        isFromAtri = isFromAtri,
+                        timestamp = timestamp,
+                        attachments = attachments,
+                        mood = if (isFromAtri) log.mood else null
+                    )
+                    messageDao.insert(message)
+                    existingIds.add(id)
+                    inserted += 1
+                }
+
+                if (logs.size < limit) break
+                val nextAfter = logs.maxOfOrNull { it.timestamp } ?: after
+                after = if (nextAfter > after) nextAfter else normalizedTimestamp
+            }
+
+            if (latestTimestamp > 0L) {
+                markConversationTouched(latestTimestamp)
+            }
+
+            Result.success(inserted)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     suspend fun fetchLastConversationInfo(): Result<LastConversationInfo?> = withContext(Dispatchers.IO) {

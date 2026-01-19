@@ -21,6 +21,7 @@ import me.atri.data.db.entity.MessageEntity
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.UUID
 
 sealed interface ChatItem {
     data class MessageItem(val message: MessageEntity, val showTimestamp: Boolean) : ChatItem
@@ -130,6 +131,9 @@ class ChatViewModel(
     init {
         observeMessages()
         refreshWelcomeState()
+        viewModelScope.launch {
+            runCatching { chatRepository.syncConversationHistory() }
+        }
         updateState { it }
     }
 
@@ -163,16 +167,21 @@ class ChatViewModel(
 
                 if (result.isSuccess) {
                     val chatResult = result.getOrThrow()
-                    val timestamp = System.currentTimeMillis()
+                    val serverTimestamp = chatResult.replyTimestamp ?: System.currentTimeMillis()
                     val latestUser = _uiState.value.historyMessages.lastOrNull { !it.isFromAtri }?.timestamp
-                    val adjustedTimestamp = latestUser?.let { maxOf(timestamp, it + 1) } ?: timestamp
+                    val adjustedTimestamp = latestUser?.let { maxOf(serverTimestamp, it + 1) } ?: serverTimestamp
 
                     val atriMessage = MessageEntity(
+                        id = chatResult.replyLogId ?: UUID.randomUUID().toString(),
                         content = chatResult.reply,
                         isFromAtri = true,
                         timestamp = adjustedTimestamp
                     )
-                    chatRepository.persistAtriMessage(atriMessage)
+                    chatRepository.persistAtriMessage(
+                        finalMessage = atriMessage,
+                        mood = chatResult.mood,
+                        replyTo = chatResult.replyTo
+                    )
                     statusRepository.incrementIntimacy(1)
                     updateState { it.copy(currentStatus = AtriStatus.fromMood(chatResult.mood, chatResult.intimacy)) }
 
@@ -285,12 +294,20 @@ class ChatViewModel(
 
                 if (result.isSuccess) {
                     val chatResult = result.getOrThrow()
+                    val serverTimestamp = chatResult.replyTimestamp ?: System.currentTimeMillis()
+                    val adjustedTimestamp = maxOf(serverTimestamp, userMessage.timestamp + 1)
                     val atriMessage = MessageEntity(
+                        id = chatResult.replyLogId ?: UUID.randomUUID().toString(),
                         content = chatResult.reply,
                         isFromAtri = true,
-                        timestamp = System.currentTimeMillis()
+                        timestamp = adjustedTimestamp
                     )
-                    chatRepository.persistAtriMessage(atriMessage)
+                    chatRepository.persistAtriMessage(
+                        finalMessage = atriMessage,
+                        mood = chatResult.mood,
+                        replyTo = chatResult.replyTo,
+                        syncRemote = chatResult.replyLogId.isNullOrBlank()
+                    )
                     statusRepository.incrementIntimacy(1)
                     updateState { it.copy(currentStatus = AtriStatus.fromMood(chatResult.mood, chatResult.intimacy)) }
                 } else {
@@ -339,12 +356,20 @@ class ChatViewModel(
 
                         if (result.isSuccess) {
                             val chatResult = result.getOrThrow()
+                            val serverTimestamp = chatResult.replyTimestamp ?: System.currentTimeMillis()
+                            val adjustedTimestamp = maxOf(serverTimestamp, editedMessage.timestamp + 1)
                             val atriMessage = MessageEntity(
+                                id = chatResult.replyLogId ?: UUID.randomUUID().toString(),
                                 content = chatResult.reply,
                                 isFromAtri = true,
-                                timestamp = System.currentTimeMillis()
+                                timestamp = adjustedTimestamp
                             )
-                            chatRepository.persistAtriMessage(atriMessage)
+                            chatRepository.persistAtriMessage(
+                                finalMessage = atriMessage,
+                                mood = chatResult.mood,
+                                replyTo = chatResult.replyTo,
+                                syncRemote = chatResult.replyLogId.isNullOrBlank()
+                            )
                             statusRepository.incrementIntimacy(1)
                             updateState { it.copy(currentStatus = AtriStatus.fromMood(chatResult.mood, chatResult.intimacy)) }
                         } else {

@@ -1,0 +1,14 @@
+# Node
+node_modules/
+dist/
+
+# Runtime data (bind mounts)
+data/
+
+# Env
+.env
+.env.*
+
+# Logs
+*.log
+
