@@ -53,17 +53,22 @@
 
 ### 3.1 数据库连接
 
-假设你数据库服务的名字叫 `db`，推荐你这样配（强密码带特殊字符也不怕）：
+推荐做法：数据库服务就叫 `db`（本项目模板默认就是），然后 **API 服务不用手填 host** —— Zeabur 会自动注入 `DB_HOST (auto generated)`，后端会优先用它（UI 里看不到具体值是正常的）。
+
+你只需要配下面这些（强密码带特殊字符也不怕）：
 
 ```env
-POSTGRES_HOST=db.zeabur.internal
 POSTGRES_PORT=5432
 POSTGRES_USER=atri
 POSTGRES_PASSWORD=<POSTGRES_PASSWORD>
 POSTGRES_DB=atri
 ```
 
-如果你数据库服务不叫 `db`，把 `POSTGRES_HOST` 改成你的服务名，例如 `postgres.zeabur.internal`。
+如果你不是用模板、或者你的数据库服务不叫 `db`，那就再额外手动补一个：
+
+```env
+POSTGRES_HOST=<你的数据库内网 Host>
+```
 
 > 你也可以继续用 `DATABASE_URL`，但如果密码里有 `@ : / # ?` 这类字符，需要先做 URL 编码；不想折腾就用上面的 `POSTGRES_*`。
 
@@ -123,7 +128,7 @@ EMBEDDINGS_MODEL=BAAI/bge-m3
 1. **访问 404**：没设置 `ADMIN_API_KEY` 或没开 `ADMIN_PUBLIC=1`
 2. **登录提示 bad_origin**：`ADMIN_ALLOWED_ORIGINS` / `PUBLIC_BASE_URL` 没配对（要带 `https://`）
 3. **服务能跑但 API 500**：上游 Key 没配；进 `/admin → 运行时配置` 填完保存
-4. **数据库连不上**：`DATABASE_URL` 里的 host 写错；按你的 db 服务名改成 `xxx.zeabur.internal`
+4. **数据库连不上**：优先删掉你手填的 `POSTGRES_HOST`，让后端自动用 Zeabur 注入的 `DB_HOST (auto generated)`；如果你必须手填 host，就填 Zeabur 给你的数据库内网 Host
 5. **重启后数据丢失**：没配 Volume（DB 的 `/var/lib/postgresql/data`、API 的 `/data`）
 
 ## 6）做成“真正的一键链接”（Deploy on Zeabur 按钮）

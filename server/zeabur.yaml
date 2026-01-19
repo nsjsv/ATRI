@@ -69,8 +69,6 @@ spec:
             default: "3111"
           MEDIA_ROOT:
             default: "/data/media"
-          POSTGRES_HOST:
-            default: "db.zeabur.internal"
           POSTGRES_PORT:
             default: "5432"
           POSTGRES_USER:

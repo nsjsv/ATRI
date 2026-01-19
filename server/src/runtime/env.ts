@@ -27,20 +27,41 @@ function readNumber(value: unknown) {
 }
 
 function buildDatabaseUrlFromParts(source: NodeJS.ProcessEnv) {
-  const host = readOptionalText(source.POSTGRES_HOST) || readOptionalText(source.PGHOST);
-  const user = readOptionalText(source.POSTGRES_USER) || readOptionalText(source.PGUSER);
-  const password = readOptionalText(source.POSTGRES_PASSWORD) || readOptionalText(source.PGPASSWORD);
-  const database = readOptionalText(source.POSTGRES_DB) || readOptionalText(source.PGDATABASE);
+  const explicitHost = readOptionalText(source.POSTGRES_HOST) || readOptionalText(source.PGHOST);
+  const zeaburHost = readOptionalText(source.DB_HOST);
+  const host =
+    zeaburHost && (!explicitHost || explicitHost === 'db' || explicitHost === 'db.zeabur.internal')
+      ? zeaburHost
+      : explicitHost;
+
+  const user =
+    readOptionalText(source.POSTGRES_USER)
+    || readOptionalText(source.PGUSER)
+    || readOptionalText(source.DB_USER)
+    || readOptionalText(source.DB_USERNAME);
+
+  const password =
+    readOptionalText(source.POSTGRES_PASSWORD)
+    || readOptionalText(source.PGPASSWORD)
+    || readOptionalText(source.DB_PASSWORD);
+
+  const database =
+    readOptionalText(source.POSTGRES_DB)
+    || readOptionalText(source.PGDATABASE)
+    || readOptionalText(source.DB_NAME)
+    || readOptionalText(source.DB_DATABASE);
+
   const port =
     readNumber(source.POSTGRES_PORT)
     ?? readNumber(source.PGPORT)
-    ?? 5432;
+    ?? readNumber(source.DB_PORT);
 
   if (!host || !user || !database) return null;
 
   const url = new URL('postgres://localhost');
-  url.hostname = host;
-  url.port = String(port);
+  url.host = host;
+  if (typeof port === 'number') url.port = String(port);
+  if (!url.port) url.port = '5432';
   url.username = user;
   if (typeof password === 'string') url.password = password;
   url.pathname = `/${database}`;
@@ -54,7 +75,7 @@ export function loadEnv(source: NodeJS.ProcessEnv): Env {
     || '';
   if (!databaseUrl) {
     throw new Error(
-      'DATABASE_URL is missing (or set POSTGRES_HOST/POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB)'
+      'DATABASE_URL is missing (or set POSTGRES_HOST/POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB, or DB_HOST/DB_USER/DB_PASSWORD/DB_NAME)'
     );
   }
 
