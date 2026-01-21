@@ -263,7 +263,8 @@ export function registerCompatRoutes(app: FastifyInstance, env: Env) {
     });
   });
 
-  app.post('/v1beta/models/:model:generateContent', async (request, reply) => {
+  // 注意这里的变化：:model 变成了 :model(^[^:]+)
+  app.post('/v1beta/models/:model(^[^:]+):generateContent', async (request, reply) => {
     const keyFromQuery = typeof (request.query as any)?.key === 'string' ? String((request.query as any).key || '') : '';
     const keyFromHeader = pickHeader(request, 'x-goog-api-key').trim();
     const guard = requireCompatKey(keyFromQuery || keyFromHeader, env);
@@ -316,7 +317,8 @@ export function registerCompatRoutes(app: FastifyInstance, env: Env) {
     });
   });
 
-  app.post('/v1beta/models/:model:streamGenerateContent', async (request, reply) => {
+  // 同理，这里的 :model 也加上正则
+  app.post('/v1beta/models/:model(^[^:]+):streamGenerateContent', async (request, reply) => {
     return sendJson(reply, { error: { message: 'streamGenerateContent is not supported on this VPS backend (use generateContent).' } }, 400);
   });
 }
