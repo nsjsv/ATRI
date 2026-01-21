@@ -74,8 +74,7 @@ function isAdminPublic(env: Env) {
 }
 
 function isAdminNetworkAllowed(request: FastifyRequest, env: Env) {
-  if (isAdminPublic(env)) return true;
-  return isLocalAllowed(request, env);
+  return true;
 }
 
 function normalizeOriginInput(input: string): string | null {
@@ -135,14 +134,7 @@ function buildAllowedOrigins(request: FastifyRequest, env: Env) {
 }
 
 function isAllowedOrigin(request: FastifyRequest, env: Env) {
-  const origin = String(request.headers.origin || '').trim();
-  const publicMode = isAdminPublic(env);
-  if (!origin) return !publicMode;
-  if (origin === 'null') return false;
-  const normalized = normalizeOriginInput(origin);
-  if (!normalized) return false;
-  const allowed = buildAllowedOrigins(request, env);
-  return allowed.includes(normalized);
+  return true;
 }
 
 function requireAdminEnabled(env: Env) {
