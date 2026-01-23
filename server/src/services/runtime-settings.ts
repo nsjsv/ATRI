@@ -18,7 +18,6 @@ type RuntimeConfigPublic = {
   diaryTemperature?: number;
   diaryMaxTokens?: number;
   profileTemperature?: number;
-  selfReviewTemperature?: number;
 };
 
 type RuntimeConfigSecrets = {
@@ -49,7 +48,6 @@ export type EffectiveRuntimeSettings = {
   diaryTemperature: number;
   diaryMaxTokens: number;
   profileTemperature: number;
-  selfReviewTemperature: number;
 
   prompts: any;
 };
@@ -92,8 +90,7 @@ const DEFAULTS = {
   agentMaxTokens: 4096,
   diaryTemperature: 0.7,
   diaryMaxTokens: 4096,
-  profileTemperature: 0.2,
-  selfReviewTemperature: 0.2
+  profileTemperature: 0.2
 };
 
 function normalizeApiFormat(value: unknown): 'openai' | 'anthropic' | 'gemini' | null {
@@ -261,7 +258,7 @@ function mergePrompts(base: any, override: any | null) {
   if (!override || typeof override !== 'object') return base;
   const merged = JSON.parse(JSON.stringify(base));
 
-  for (const key of ['agent', 'diary', 'profile', 'stickyNote']) {
+  for (const key of ['agent', 'diary', 'profile']) {
     const src = (override as any)[key];
     if (!src || typeof src !== 'object') continue;
     merged[key] = merged[key] && typeof merged[key] === 'object' ? merged[key] : {};
@@ -326,11 +323,6 @@ function resolveEffectiveSettings(
     0,
     2
   );
-  const selfReviewTemperature = clampNumber(
-    normalizeOptionalNumber(c.selfReviewTemperature) ?? DEFAULTS.selfReviewTemperature,
-    0,
-    2
-  );
 
   const prompts = mergePrompts(defaultPrompts as any, promptsOverride);
 
@@ -354,7 +346,6 @@ function resolveEffectiveSettings(
     diaryTemperature,
     diaryMaxTokens,
     profileTemperature,
-    selfReviewTemperature,
     prompts
   };
 }
@@ -509,8 +500,7 @@ export async function updateRuntimeConfig(
     'agentMaxTokens',
     'diaryTemperature',
     'diaryMaxTokens',
-    'profileTemperature',
-    'selfReviewTemperature'
+    'profileTemperature'
   ];
 
   for (const keyName of configKeys) {
@@ -596,9 +586,7 @@ function normalizePromptsForSave(input: any) {
     ['diary', 'system'],
     ['diary', 'userTemplate'],
     ['profile', 'system'],
-    ['profile', 'userTemplate'],
-    ['stickyNote', 'system'],
-    ['stickyNote', 'userTemplate']
+    ['profile', 'userTemplate']
   ] as const;
 
   const out: any = {};

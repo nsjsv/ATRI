@@ -6,22 +6,17 @@ import {
   buildConversationTranscript,
   calculateDaysBetween,
   fetchConversationLogs,
-  getAtriSelfReview,
   getDiaryEntry,
-  getFirstConversationTimestamp,
   getLastConversationDate,
   getUserModelPreference,
   getUserProfile,
   listDiaryEntries,
-  saveAtriSelfReview,
   saveDiaryEntry,
   saveUserProfile
 } from '../services/data-service';
 import { generateDiaryFromConversation } from '../services/diary-generator';
 import { upsertDiaryHighlightsMemory } from '../services/memory-service';
 import { generateUserProfile } from '../services/profile-generator';
-import { generateAtriSelfReview } from '../services/self-review-generator';
-import { DEFAULT_TIMEZONE, formatDateInZone } from '../utils/date';
 
 export function registerDiaryRoutes(app: FastifyInstance, env: Env) {
   app.get('/diary', async (request, reply) => {
@@ -135,31 +130,6 @@ export function registerDiaryRoutes(app: FastifyInstance, env: Env) {
         request.log.warn({ err, userId, date }, '[ATRI] User profile update skipped (regenerate)');
       }
 
-      try {
-        const timeZone =
-          logs.find(l => l.role === 'user' && l.timeZone)?.timeZone
-          || logs.find(l => l.timeZone)?.timeZone
-          || DEFAULT_TIMEZONE;
-
-        const firstConversationAt = await getFirstConversationTimestamp(env, userId);
-        const firstDate = firstConversationAt ? formatDateInZone(firstConversationAt, timeZone) : null;
-        const daysTogether = firstDate ? Math.max(1, calculateDaysBetween(firstDate, date) + 1) : 1;
-
-        const previousSelfReview = await getAtriSelfReview(env, userId);
-        const selfReview = await generateAtriSelfReview(env, {
-          transcript,
-          diaryContent: '',
-          date,
-          daysTogether,
-          userName: detectedUserName || '这个人',
-          previousSelfReview: previousSelfReview?.content || '',
-          modelKey: preferredModel
-        });
-        await saveAtriSelfReview(env, { userId, content: selfReview.raw });
-      } catch (err) {
-        request.log.warn({ err, userId, date }, '[ATRI] Self review update skipped (regenerate)');
-      }
-
       const entry = await getDiaryEntry(env, userId, date);
       if (!entry) {
         return sendJson(reply, { error: 'save_failed' }, 500);
@@ -171,4 +141,3 @@ export function registerDiaryRoutes(app: FastifyInstance, env: Env) {
     }
   });
 }
-

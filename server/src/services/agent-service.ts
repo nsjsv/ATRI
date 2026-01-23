@@ -8,7 +8,7 @@ import { signMediaUrlForModel } from '../utils/media-signature';
 import { resolveDayStartTimestamp, formatTimeInZone, DEFAULT_TIMEZONE } from '../utils/date';
 import { sanitizeAssistantReply, sanitizeText } from '../utils/sanitize';
 import { ChatCompletionError } from './openai-service';
-import { searchMemories } from './memory-service';
+import { searchMemories, getActiveFacts, upsertFactMemory, deleteFactMemory } from './memory-service';
 import { webSearch } from './web-search-service';
 import { getEffectiveRuntimeSettings } from './runtime-settings';
 import { callUpstreamChat } from './llm-service';
@@ -18,7 +18,6 @@ import {
   getConversationLogDate,
   getDiaryEntry,
   getFirstConversationTimestamp,
-  getAtriSelfReview,
   getUserProfile,
   getUserState,
   saveUserState,
@@ -360,33 +359,24 @@ async function loadUserProfileSnippet(env: Env, userId: string) {
 
 async function loadAtriSelfReviewSnippet(env: Env, userId: string) {
   try {
-    const record = await getAtriSelfReview(env, userId);
-    if (!record?.content) {
-      return '';
+    const facts = await getActiveFacts(env, userId, 15);
+    if (facts.length > 0) {
+      return buildFactsSnippet(facts);
     }
-    return buildAtriSelfReviewSnippet(record.content);
+    return '';
   } catch (error) {
-    console.warn('[ATRI] self review加载失败', { userId, error });
+    console.warn('[ATRI] facts加载失败', { userId, error });
     return '';
   }
 }
 
-function buildAtriSelfReviewSnippet(content: string) {
-  const trimmed = String(content || '').trim();
-  if (!trimmed) return '';
-
-  try {
-    const data: any = JSON.parse(trimmed);
-    const notes = Array.isArray(data?.['便签']) ? data['便签'] : [];
-    const lines = notes
-      .map((item: any) => String(item || '').trim().replace(/\s+/g, ' '))
-      .filter(Boolean)
-      .slice(0, 3)
-      .map((line: string) => `- ${line}`);
-    return lines.join('\n');
-  } catch {
-    return '';
-  }
+function buildFactsSnippet(facts: Array<{ id: string; text: string }>) {
+  if (!facts.length) return '';
+  const lines = facts
+    .slice(0, 10)
+    .map(f => `- [${f.id}] ${f.text}`)
+    .filter(Boolean);
+  return lines.join('\n');
 }
 
 function buildUserProfileSnippet(content: string) {
@@ -589,6 +579,34 @@ async function executeAgentTool(
       output: `关系温度变化：${updated.intimacy}${reasonText}`,
       updatedState: updated
     };
+  }
+
+  if (name === 'remember_fact') {
+    const content = sanitizeText(String(args?.content || '').trim());
+    if (!content) {
+      return { output: '内容为空，没有记住' };
+    }
+    try {
+      const result = await upsertFactMemory(env, userId, content);
+      return { output: result.isNew ? `记住了：${content}` : `更新了：${content}` };
+    } catch (error) {
+      console.warn('[ATRI] remember_fact failed', error);
+      return { output: '记录失败' };
+    }
+  }
+
+  if (name === 'forget_fact') {
+    const factId = String(args?.factId || args?.fact_id || '').trim();
+    if (!factId) {
+      return { output: '没有指定要忘记的事实 ID' };
+    }
+    try {
+      const deleted = await deleteFactMemory(env, userId, factId);
+      return { output: deleted ? `已忘记：${factId}` : `没找到：${factId}` };
+    } catch (error) {
+      console.warn('[ATRI] forget_fact failed', error);
+      return { output: '删除失败' };
+    }
   }
 
   return { output: '未知工具' };
@@ -847,6 +865,34 @@ const AGENT_TOOLS = [
           reason: { type: 'string', description: '内心的声音' }
         },
         required: ['delta', 'reason']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remember_fact',
+      description: '把这件事记在心里：重要事实、喜好/雷区、未完成的约定、下次要记得问/做的事。',
+      parameters: {
+        type: 'object',
+        properties: {
+          content: { type: 'string', description: '用一句话概括' }
+        },
+        required: ['content']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'forget_fact',
+      description: '这件事已经不对了。他说情况变了，那我就把旧的划掉。',
+      parameters: {
+        type: 'object',
+        properties: {
+          factId: { type: 'string', description: '要划掉的那条（从"记在心里的事"里找 ID）' }
+        },
+        required: ['factId']
       }
     }
   }

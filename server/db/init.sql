@@ -72,13 +72,6 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   updated_at BIGINT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS atri_self_reviews (
-  user_id TEXT PRIMARY KEY,
-  content TEXT,
-  created_at BIGINT NOT NULL,
-  updated_at BIGINT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS memory_vectors (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,

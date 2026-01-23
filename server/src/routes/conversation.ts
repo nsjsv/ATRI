@@ -7,10 +7,13 @@ import {
   calculateDaysBetween,
   deleteConversationLogsByIds,
   fetchConversationLogsAfter,
+  fetchTombstonesAfter,
   getLastConversationDate,
   isConversationLogDeleted,
-  saveConversationLog
+  saveConversationLog,
+  markDiaryPending
 } from '../services/data-service';
+import { deleteDiaryVectors } from '../services/memory-service';
 import { DEFAULT_TIMEZONE, formatDateInZone } from '../utils/date';
 
 const VALID_ROLES = new Set(['user', 'atri']);
@@ -128,6 +131,7 @@ export function registerConversationRoutes(app: FastifyInstance, env: Env) {
     const afterRaw = Number((request.query as any)?.after || '0');
     const limitRaw = Number((request.query as any)?.limit || '50');
     const roleParam = String((request.query as any)?.role || '').trim();
+    const includeTombstones = String((request.query as any)?.tombstones || '').trim() === 'true';
     const roles = roleParam
       ? roleParam.split(',').map((item: string) => item.trim()).filter((r) => VALID_ROLES.has(r))
       : [];
@@ -139,10 +143,53 @@ export function registerConversationRoutes(app: FastifyInstance, env: Env) {
         limit: Number.isFinite(limitRaw) ? limitRaw : undefined,
         roles: roles as Array<'user' | 'atri'>
       });
+
+      if (includeTombstones) {
+        const tombstones = await fetchTombstonesAfter(env, {
+          userId,
+          after: Number.isFinite(afterRaw) ? afterRaw : 0,
+          limit: 100
+        });
+        return sendJson(reply, { logs, tombstones });
+      }
+
       return sendJson(reply, { logs });
     } catch (error: unknown) {
       request.log.error({ error }, '[ATRI] conversation pull error');
       return sendJson(reply, { error: 'pull_failed' }, 500);
+    }
+  });
+
+  app.post('/conversation/invalidate-memory', async (request, reply) => {
+    try {
+      const auth = requireAppToken(request, env);
+      if (auth) return sendJson(reply, auth.body, auth.status);
+
+      const body = request.body as any;
+      const userId = String(body?.userId || '').trim();
+      const date = String(body?.date || '').trim();
+
+      if (!userId || !date) {
+        return sendJson(reply, { error: 'invalid_params' }, 400);
+      }
+
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return sendJson(reply, { error: 'invalid_date_format' }, 400);
+      }
+
+      const MAX_HIGHLIGHTS_PER_DAY = 10;
+      const idsToDelete: string[] = [];
+      for (let i = 0; i < MAX_HIGHLIGHTS_PER_DAY; i++) {
+        idsToDelete.push(`hl:${userId}:${date}:${i}`);
+      }
+
+      const deleted = await deleteDiaryVectors(env, idsToDelete);
+      await markDiaryPending(env, userId, date);
+
+      return sendJson(reply, { ok: true, deleted, date });
+    } catch (error: unknown) {
+      request.log.error({ error }, '[ATRI] conversation invalidate-memory error');
+      return sendJson(reply, { error: 'invalidate_failed' }, 500);
     }
   });
 }

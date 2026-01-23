@@ -66,8 +66,7 @@ async function main() {
     diaryEntries: 0,
     userStates: 0,
     userSettings: 0,
-    userProfiles: 0,
-    atriSelfReviews: 0
+    userProfiles: 0
   };
 
   const client = await env.db.connect();
@@ -218,30 +217,6 @@ async function main() {
           ]
         );
         imported.userProfiles++;
-      }
-    }
-
-    if (tableExists('atri_self_reviews')) {
-      const rows = readAll(
-        `SELECT user_id, content, created_at, updated_at
-           FROM atri_self_reviews`
-      );
-      for (const row of rows) {
-        await client.query(
-          `INSERT INTO atri_self_reviews
-              (user_id, content, created_at, updated_at)
-           VALUES ($1,$2,$3,$4)
-           ON CONFLICT (user_id) DO UPDATE SET
-             content = EXCLUDED.content,
-             updated_at = EXCLUDED.updated_at`,
-          [
-            safeText(row.user_id),
-            safeText(row.content) || null,
-            safeInt(row.created_at, Date.now()),
-            safeInt(row.updated_at, Date.now())
-          ]
-        );
-        imported.atriSelfReviews++;
       }
     }
 

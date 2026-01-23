@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>ATRI 控制台</title>
+    <title>ATRI Console</title>
     <link rel="stylesheet" href="/admin/assets/styles.css" />
   </head>
   <body>
@@ -11,26 +11,24 @@
       <div class="card card--header">
         <div class="inline inline-between">
           <div>
-            <div class="brand-title">ATRI 管理后台</div>
-            <div class="muted">默认只允许本机/SSH 隧道访问；如需公网访问与安全说明请看「概览」。</div>
+            <div class="brand-title">ATRI Console</div>
+            <div class="muted small">默认只允许本机访问，公网访问请查看「概览」中的安全说明。</div>
           </div>
           <div class="inline">
-            <button id="themeToggleBtn" class="secondary sm" type="button">主题</button>
+            <button id="themeToggleBtn" class="secondary sm" type="button">切换主题</button>
             <span id="sessionStatus" class="muted">未登录</span>
-            <button id="logoutBtn" class="secondary" type="button" hidden>退出</button>
+            <button id="logoutBtn" class="secondary sm" type="button" hidden>退出</button>
           </div>
         </div>
       </div>
 
       <div id="loginCard" class="card">
         <div class="card-title">登录</div>
-        <div class="row">
-          <div class="col">
-            <label for="apiKey">ADMIN_API_KEY</label>
-            <input id="apiKey" type="password" placeholder="输入管理员密钥" autocomplete="current-password" />
-          </div>
+        <div class="field">
+          <label for="apiKey">管理密钥</label>
+          <input id="apiKey" type="password" placeholder="输入 ADMIN_API_KEY" autocomplete="current-password" />
         </div>
-        <div class="inline mt-10">
+        <div class="inline mt-18">
           <button id="loginBtn" type="button">登录</button>
           <span id="loginMsg" class="muted"></span>
         </div>
@@ -38,8 +36,8 @@
 
       <div id="app" hidden>
         <div class="card">
-          <div class="tabs" role="tablist" aria-label="管理后台导航">
-            <button class="tab active" type="button" data-tab="config" role="tab" aria-selected="true">运行时配置</button>
+          <div class="tabs" role="tablist" aria-label="导航">
+            <button class="tab active" type="button" data-tab="config" role="tab" aria-selected="true">配置</button>
             <button class="tab" type="button" data-tab="overview" role="tab" aria-selected="false">概览</button>
             <button class="tab" type="button" data-tab="prompts" role="tab" aria-selected="false">提示词</button>
             <button class="tab" type="button" data-tab="conversation" role="tab" aria-selected="false">对话</button>
@@ -47,35 +45,33 @@
           </div>
         </div>
 
+        <!-- 配置 Tab -->
         <div id="tab-config" class="card" role="tabpanel">
-          <div class="muted small">说明：这里改的是“运行时配置”（存 DB），保存后立刻生效，不用重启容器。</div>
+          <div class="muted small">运行时配置，保存后立即生效，无需重启。</div>
           <div id="configMeta" class="muted small mt-6"></div>
 
           <div class="section-title mt-18">聊天上游</div>
           <div class="row">
             <div class="col">
               <div class="field">
-                <label for="chatApiFormat">聊天上游 API 格式</label>
+                <label for="chatApiFormat">API 格式</label>
                 <select id="chatApiFormat">
                   <option value="openai">OpenAI</option>
                   <option value="anthropic">Anthropic</option>
                   <option value="gemini">Gemini</option>
                 </select>
-                <div class="muted small mt-6">决定“聊天上游”的请求/响应格式（支持工具调用与图片）。</div>
               </div>
             </div>
             <div class="col">
               <div class="field">
-                <label for="openaiApiUrl">聊天上游 API 地址</label>
+                <label for="openaiApiUrl">API 地址</label>
                 <input id="openaiApiUrl" placeholder="https://api.openai.com" />
-                <div class="muted small mt-6">
-                  只需要填到版本号之前（不要带 /v1）；后台会自动补全：OpenAI/Anthropic → /v1，Gemini → /v1beta。
-                </div>
+                <div class="muted small mt-6">填到版本号之前，不要带 /v1</div>
               </div>
             </div>
             <div class="col">
               <div class="field">
-                <label for="defaultChatModel">默认聊天模型</label>
+                <label for="defaultChatModel">默认模型</label>
                 <input id="defaultChatModel" placeholder="gpt-4o" />
               </div>
             </div>
@@ -84,7 +80,7 @@
           <div class="row">
             <div class="col">
               <div class="field">
-                <label for="openaiApiKey">聊天上游 API Key</label>
+                <label for="openaiApiKey">API Key</label>
                 <input id="openaiApiKey" type="password" placeholder="留空则保持不变" autocomplete="off" />
                 <div class="field-hint">
                   <input id="clearOpenaiApiKey" type="checkbox" />
@@ -95,15 +91,15 @@
             </div>
             <div class="col">
               <div class="field">
-                <label for="anthropicVersion">Anthropic-Version（仅 Anthropic 需要）</label>
+                <label for="anthropicVersion">Anthropic-Version</label>
                 <input id="anthropicVersion" placeholder="2023-06-01" />
-                <div class="muted small mt-6">不确定就用默认值 `2023-06-01`。</div>
+                <div class="muted small mt-6">仅 Anthropic 格式需要</div>
               </div>
             </div>
           </div>
 
           <div class="divider"></div>
-          <div class="section-title">联网搜索（可选）</div>
+          <div class="section-title">联网搜索</div>
           <div class="row">
             <div class="col">
               <div class="field">
@@ -123,13 +119,13 @@
           <div class="row">
             <div class="col">
               <div class="field">
-                <label for="embeddingsApiUrl">Embeddings API 地址</label>
+                <label for="embeddingsApiUrl">API 地址</label>
                 <input id="embeddingsApiUrl" placeholder="https://api.siliconflow.cn/v1" />
               </div>
             </div>
             <div class="col">
               <div class="field">
-                <label for="embeddingsModel">Embeddings 模型</label>
+                <label for="embeddingsModel">模型</label>
                 <input id="embeddingsModel" placeholder="BAAI/bge-m3" />
               </div>
             </div>
@@ -138,7 +134,7 @@
           <div class="row">
             <div class="col">
               <div class="field">
-                <label for="embeddingsApiKey">Embeddings API Key</label>
+                <label for="embeddingsApiKey">API Key</label>
                 <input id="embeddingsApiKey" type="password" placeholder="留空则保持不变" autocomplete="off" />
                 <div class="field-hint">
                   <input id="clearEmbeddingsApiKey" type="checkbox" />
@@ -154,21 +150,19 @@
           <div class="row">
             <div class="col">
               <div class="field">
-                <label for="diaryApiFormat">日记上游 API 格式（可选）</label>
+                <label for="diaryApiFormat">API 格式</label>
                 <select id="diaryApiFormat">
                   <option value="">跟随聊天上游</option>
                   <option value="openai">OpenAI</option>
                   <option value="anthropic">Anthropic</option>
                   <option value="gemini">Gemini</option>
                 </select>
-                <div class="muted small mt-6">不选就沿用“聊天上游”格式。</div>
               </div>
             </div>
             <div class="col">
               <div class="field">
-                <label for="diaryApiUrl">日记 API 地址（可选）</label>
-                <input id="diaryApiUrl" placeholder="留空则使用聊天上游配置" />
-                <div class="muted small mt-6">同样只填到版本号之前（不要带 /v1 或 /v1beta）。</div>
+                <label for="diaryApiUrl">API 地址</label>
+                <input id="diaryApiUrl" placeholder="留空则使用聊天上游" />
               </div>
             </div>
           </div>
@@ -176,8 +170,8 @@
           <div class="row">
             <div class="col">
               <div class="field">
-                <label for="diaryApiKey">日记 API Key</label>
-                <input id="diaryApiKey" type="password" placeholder="留空则使用聊天上游 Key" autocomplete="off" />
+                <label for="diaryApiKey">API Key</label>
+                <input id="diaryApiKey" type="password" placeholder="留空则使用聊天上游" autocomplete="off" />
                 <div class="field-hint">
                   <input id="clearDiaryApiKey" type="checkbox" />
                   <span>清空已保存</span>
@@ -187,7 +181,7 @@
             </div>
             <div class="col">
               <div class="field">
-                <label for="diaryModel">日记模型（可选）</label>
+                <label for="diaryModel">模型</label>
                 <input id="diaryModel" placeholder="日记生成使用的模型" />
               </div>
             </div>
@@ -226,20 +220,14 @@
             </div>
           </div>
 
-          <div class="row">
-            <div class="col">
-              <div class="field">
-                <label for="profileTemperature">档案 Temperature</label>
-                <input id="profileTemperature" placeholder="0.2" />
-              </div>
-            </div>
-            <div class="col">
-              <div class="field">
-                <label for="selfReviewTemperature">便签 Temperature</label>
-                <input id="selfReviewTemperature" placeholder="0.2" />
-              </div>
-            </div>
-          </div>
+	          <div class="row">
+	            <div class="col">
+	              <div class="field">
+	                <label for="profileTemperature">档案 Temperature</label>
+	                <input id="profileTemperature" placeholder="0.2" />
+	              </div>
+	            </div>
+	          </div>
 
           <div class="inline mt-18">
             <button id="saveConfigBtn" type="button">保存配置</button>
@@ -258,8 +246,9 @@
           <div id="toolsOut" class="log log--small mt-12"></div>
         </div>
 
+        <!-- 概览 Tab -->
         <div id="tab-overview" class="card" role="tabpanel" hidden>
-          <div class="muted small">说明：这里展示部署信息与后台安全模式（方便你排查“为啥打不开/为啥跨域”）。</div>
+          <div class="muted small">部署信息与安全模式</div>
 
           <div class="row mt-10">
             <div class="col">
@@ -274,20 +263,20 @@
               <label>后台模式</label>
               <div id="overviewMode" class="muted"></div>
               <div class="muted small mt-6">
-                公网访问需要设置 `ADMIN_PUBLIC=1`，并建议设置 `ADMIN_ALLOWED_ORIGINS`（以及 `PUBLIC_BASE_URL`）。
+                公网访问需设置 ADMIN_PUBLIC=1，建议同时设置 ADMIN_ALLOWED_ORIGINS。
               </div>
             </div>
           </div>
 
           <div class="divider"></div>
           <div class="section-title">允许的 Origin</div>
-          <div class="muted small">公网模式下，后台 API 会校验 Origin，防止跨站请求。</div>
+          <div class="muted small">公网模式下会校验 Origin，防止跨站请求。</div>
           <div id="overviewOrigins" class="log log--small mt-12"></div>
 
           <div class="divider"></div>
-          <div class="section-title">自动更新（Zeabur / GitHub）</div>
+          <div class="section-title">自动更新</div>
           <div class="muted small">
-            代码更新一般不需要在后台点“同步”：把项目绑定到 GitHub 后，Zeabur 会在你 push 代码时自动构建并发布。
+            绑定 GitHub 后，Zeabur 会在 push 时自动构建发布。
           </div>
           <div id="overviewBuildInfo" class="muted small mt-10"></div>
 
@@ -296,18 +285,19 @@
           </div>
         </div>
 
+        <!-- 提示词 Tab -->
         <div id="tab-prompts" class="card" role="tabpanel" hidden>
-          <div class="muted small">说明：这里是提示词“表单编辑”，不用你手写 JSON。保存后立刻生效。</div>
+          <div class="muted small">提示词编辑，保存后立即生效。</div>
+
           <div class="divider"></div>
-          <div class="section-title">从 GitHub 导入（可选）</div>
+          <div class="section-title">从 GitHub 导入</div>
           <div class="row">
             <div class="col">
-              <label for="promptsImportUrl">Raw JSON 地址（raw.githubusercontent.com / gist.githubusercontent.com）</label>
-              <input id="promptsImportUrl" placeholder="https://raw.githubusercontent.com/<owner>/<repo>/<branch>/path/prompts.json" />
-              <div class="muted small mt-6">会直接覆盖为该文件内容（要求结构与本后台提示词一致）。</div>
+              <label for="promptsImportUrl">Raw JSON 地址</label>
+              <input id="promptsImportUrl" placeholder="https://raw.githubusercontent.com/..." />
               <div class="field-hint mt-10">
                 <input id="promptsAutoSync" type="checkbox" />
-                <span>每次登录后台时自动从该地址同步（覆盖）</span>
+                <span>每次登录时自动同步</span>
               </div>
             </div>
           </div>
@@ -315,53 +305,80 @@
             <button id="importPromptsBtn" class="secondary" type="button">导入并覆盖</button>
             <span id="promptsImportMsg" class="muted"></span>
           </div>
+
           <div class="divider"></div>
-          <div class="row">
-            <div class="col">
-              <label for="p_agent_system">agent.system</label>
+          <div class="section-title">提示词内容</div>
+
+          <div class="accordion open" data-accordion="agent">
+            <div class="accordion-header">
+              <span class="accordion-title">agent.system</span>
+              <svg class="accordion-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </div>
+            <div class="accordion-content">
               <textarea id="p_agent_system"></textarea>
             </div>
-            <div class="col">
-              <label for="p_diary_system">diary.system</label>
+          </div>
+
+          <div class="accordion" data-accordion="diary-system">
+            <div class="accordion-header">
+              <span class="accordion-title">diary.system</span>
+              <svg class="accordion-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </div>
+            <div class="accordion-content">
               <textarea id="p_diary_system"></textarea>
             </div>
           </div>
-          <div class="row">
-            <div class="col">
-              <label for="p_diary_userTemplate">diary.userTemplate</label>
+
+          <div class="accordion" data-accordion="diary-user">
+            <div class="accordion-header">
+              <span class="accordion-title">diary.userTemplate</span>
+              <svg class="accordion-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </div>
+            <div class="accordion-content">
               <textarea id="p_diary_userTemplate"></textarea>
             </div>
-            <div class="col">
-              <label for="p_profile_system">profile.system</label>
+          </div>
+
+          <div class="accordion" data-accordion="profile-system">
+            <div class="accordion-header">
+              <span class="accordion-title">profile.system</span>
+              <svg class="accordion-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </div>
+            <div class="accordion-content">
               <textarea id="p_profile_system"></textarea>
             </div>
           </div>
-          <div class="row">
-            <div class="col">
-              <label for="p_profile_userTemplate">profile.userTemplate</label>
+
+          <div class="accordion" data-accordion="profile-user">
+            <div class="accordion-header">
+              <span class="accordion-title">profile.userTemplate</span>
+              <svg class="accordion-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </div>
+            <div class="accordion-content">
               <textarea id="p_profile_userTemplate"></textarea>
             </div>
-            <div class="col">
-              <label for="p_sticky_system">stickyNote.system</label>
-              <textarea id="p_sticky_system"></textarea>
-            </div>
-          </div>
-          <div class="row">
-            <div class="col">
-              <label for="p_sticky_userTemplate">stickyNote.userTemplate</label>
-              <textarea id="p_sticky_userTemplate"></textarea>
-            </div>
           </div>
 
-          <div class="inline mt-12">
-            <button id="savePromptsBtn" type="button">保存提示词</button>
-            <button id="resetPromptsBtn" class="secondary" type="button">恢复默认</button>
-            <span id="promptsMsg" class="muted"></span>
-          </div>
-        </div>
+	          <div class="inline mt-18">
+	            <button id="savePromptsBtn" type="button">保存提示词</button>
+	            <button id="resetPromptsBtn" class="secondary" type="button">恢复默认</button>
+	            <span id="promptsMsg" class="muted"></span>
+	          </div>
+	        </div>
 
+        <!-- 日志 Tab -->
         <div id="tab-logs" class="card" role="tabpanel" hidden>
-          <div class="muted small">说明：这是“应用层”错误日志（内存最多 1000 条），支持实时流。</div>
+          <div class="muted small">应用层错误日志，内存最多 1000 条，支持实时流。</div>
           <div class="inline mt-10">
             <button id="refreshLogsBtn" class="secondary" type="button">刷新</button>
             <button id="toggleStreamBtn" class="secondary" type="button">开始实时</button>
@@ -370,12 +387,13 @@
           <div id="logsBox" class="log mt-10"></div>
         </div>
 
+        <!-- 对话 Tab -->
         <div id="tab-conversation" class="card" role="tabpanel" hidden>
-          <div class="muted small">说明：按 userId 拉取并查看对话日志（用于排障/同步检查）。</div>
+          <div class="muted small">按 userId 拉取对话日志，用于排障或同步检查。</div>
           <div class="row mt-10">
             <div class="col">
               <label for="convUserId">userId</label>
-              <input id="convUserId" placeholder="例如：xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+              <input id="convUserId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
             </div>
             <div class="col">
               <label for="convRole">role（可选）</label>

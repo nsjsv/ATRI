@@ -79,7 +79,7 @@ class SettingsViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, statusMessage = null) }
             preferencesStore.setApiUrl(url)
-            _uiState.update { it.copy(isLoading = false, statusMessage = "已更新 Worker URL") }
+            _uiState.update { it.copy(isLoading = false, statusMessage = "已更新 API URL") }
         }
     }
 

@@ -1,6 +1,7 @@
 import { Env } from '../runtime/types';
 import { sanitizeText } from '../utils/sanitize';
 import { getEffectiveRuntimeSettings } from './runtime-settings';
+import { createHash } from 'node:crypto';
 
 function toPgVector(values: number[]) {
   return `[${values.join(',')}]`;
@@ -162,4 +163,84 @@ export async function deleteDiaryVectors(env: Env, ids: string[]) {
     [ids]
   );
   return Number(result.rowCount || 0);
+}
+
+// ============ 实时事实记忆 (Fact Memory) ============
+
+const FACT_MOOD_TAG = 'system_fact';
+
+export async function upsertFactMemory(
+  env: Env,
+  userId: string,
+  content: string
+): Promise<{ id: string; isNew: boolean }> {
+  const cleaned = sanitizeText(String(content || '')).trim().replace(/\s+/g, ' ');
+  if (!cleaned) {
+    throw new Error('Fact content is empty');
+  }
+
+  const hash = createHash('md5').update(cleaned).digest('hex').substring(0, 12);
+  const id = `fact:${userId}:${hash}`;
+  const now = Date.now();
+  const vector = await embedText(cleaned, env);
+  const vectorSql = toPgVector(vector);
+  const idx = -1;
+
+  const result = await env.db.query(
+    `INSERT INTO memory_vectors (id, user_id, date, idx, text, mood, importance, timestamp, embedding)
+     VALUES ($1, $2, $3, $4, $5, $6, 10, $7, $8::vector)
+     ON CONFLICT (id) DO UPDATE SET
+       text = EXCLUDED.text,
+       timestamp = EXCLUDED.timestamp,
+       embedding = EXCLUDED.embedding
+     RETURNING (xmax = 0) AS is_new`,
+    [id, userId, new Date().toISOString().slice(0, 10), idx, cleaned, FACT_MOOD_TAG, now, vectorSql]
+  );
+
+  const isNew = result.rows?.[0]?.is_new ?? true;
+  return { id, isNew };
+}
+
+export async function deleteFactMemory(env: Env, userId: string, factId: string): Promise<boolean> {
+  const trimmedId = String(factId || '').trim();
+  if (!trimmedId) return false;
+
+  // 安全检查：只能删除自己的 fact
+  if (!trimmedId.startsWith(`fact:${userId}:`)) {
+    console.warn('[ATRI] deleteFactMemory: id mismatch', { userId, factId: trimmedId });
+    return false;
+  }
+
+  const result = await env.db.query(
+    `DELETE FROM memory_vectors WHERE id = $1 AND user_id = $2`,
+    [trimmedId, userId]
+  );
+  return Number(result.rowCount || 0) > 0;
+}
+
+export type FactMemoryRecord = {
+  id: string;
+  text: string;
+  timestamp: number;
+};
+
+export async function getActiveFacts(
+  env: Env,
+  userId: string,
+  limit = 20
+): Promise<FactMemoryRecord[]> {
+  const result = await env.db.query(
+    `SELECT id, text, timestamp
+       FROM memory_vectors
+      WHERE user_id = $1 AND mood = $2
+      ORDER BY timestamp DESC
+      LIMIT $3`,
+    [userId, FACT_MOOD_TAG, Math.min(Math.max(1, limit), 50)]
+  );
+
+  return (result.rows || []).map((row: any) => ({
+    id: String(row.id || ''),
+    text: String(row.text || '').trim(),
+    timestamp: Number(row.timestamp || 0)
+  }));
 }

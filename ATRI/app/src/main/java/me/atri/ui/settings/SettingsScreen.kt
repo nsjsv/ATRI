@@ -115,7 +115,7 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = apiUrl,
                         onValueChange = { apiUrl = it },
-                        label = { Text("Worker URL") },
+                        label = { Text("API URL") },
                         placeholder = { Text("https://example.com") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
@@ -125,7 +125,7 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !uiState.isLoading
                     ) {
-                        Text(if (uiState.isLoading) "保存中..." else "保存 Worker URL")
+                        Text(if (uiState.isLoading) "保存中..." else "保存 API URL")
                     }
                     OutlinedTextField(
                         value = appToken,

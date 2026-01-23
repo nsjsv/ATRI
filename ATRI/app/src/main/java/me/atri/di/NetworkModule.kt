@@ -65,7 +65,7 @@ class DynamicConfigProvider(private val preferencesStore: PreferencesStore) {
     }
 
     companion object {
-        const val DEFAULT_BASE_URL = "https://example.com"
+        const val DEFAULT_BASE_URL = "https://mikuscat.zeabur.app"
     }
 }
 

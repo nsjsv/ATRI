@@ -492,8 +492,7 @@ export function registerAdminUiRoutes(app: FastifyInstance, env: Env) {
         agentMaxTokens: effective.agentMaxTokens,
         diaryTemperature: effective.diaryTemperature,
         diaryMaxTokens: effective.diaryMaxTokens,
-        profileTemperature: effective.profileTemperature,
-        selfReviewTemperature: effective.selfReviewTemperature
+        profileTemperature: effective.profileTemperature
       }
     });
   });

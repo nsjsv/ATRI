@@ -97,15 +97,6 @@ async function runSchemaBootstrap(env: Env) {
   );
 
   await env.db.query(
-    `CREATE TABLE IF NOT EXISTS atri_self_reviews (
-      user_id TEXT PRIMARY KEY,
-      content TEXT,
-      created_at BIGINT NOT NULL,
-      updated_at BIGINT NOT NULL
-    )`
-  );
-
-  await env.db.query(
     `CREATE TABLE IF NOT EXISTS memory_vectors (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -146,4 +137,3 @@ export async function bootstrapDatabase(env: Env, options?: { maxWaitMs?: number
     }
   }
 }
-

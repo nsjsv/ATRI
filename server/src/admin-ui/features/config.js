@@ -93,7 +93,6 @@ export async function loadConfig() {
   $('diaryTemperature').value = c.diaryTemperature ?? data.effective?.diaryTemperature ?? '';
   $('diaryMaxTokens').value = c.diaryMaxTokens ?? data.effective?.diaryMaxTokens ?? '';
   $('profileTemperature').value = c.profileTemperature ?? data.effective?.profileTemperature ?? '';
-  $('selfReviewTemperature').value = c.selfReviewTemperature ?? data.effective?.selfReviewTemperature ?? '';
 
   const flags = data.stored?.secrets || {};
   setTagState($('openaiKeyFlag'), flags.openaiApiKey);
@@ -124,8 +123,7 @@ function buildSavePayload() {
     agentMaxTokens: $('agentMaxTokens').value,
     diaryTemperature: $('diaryTemperature').value,
     diaryMaxTokens: $('diaryMaxTokens').value,
-    profileTemperature: $('profileTemperature').value,
-    selfReviewTemperature: $('selfReviewTemperature').value
+    profileTemperature: $('profileTemperature').value
   };
 
   const secrets = {};

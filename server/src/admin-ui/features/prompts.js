@@ -52,8 +52,6 @@ export async function loadPrompts() {
   $('p_diary_userTemplate').value = (p.diary && p.diary.userTemplate) || '';
   $('p_profile_system').value = (p.profile && p.profile.system) || '';
   $('p_profile_userTemplate').value = (p.profile && p.profile.userTemplate) || '';
-  $('p_sticky_system').value = (p.stickyNote && p.stickyNote.system) || '';
-  $('p_sticky_userTemplate').value = (p.stickyNote && p.stickyNote.userTemplate) || '';
   setText($('promptsMsg'), data.hasOverride ? '（当前使用自定义提示词）' : '（当前使用默认提示词）');
 }
 
@@ -62,8 +60,7 @@ export async function savePrompts() {
   const payload = {
     agent: { system: $('p_agent_system').value },
     diary: { system: $('p_diary_system').value, userTemplate: $('p_diary_userTemplate').value },
-    profile: { system: $('p_profile_system').value, userTemplate: $('p_profile_userTemplate').value },
-    stickyNote: { system: $('p_sticky_system').value, userTemplate: $('p_sticky_userTemplate').value }
+    profile: { system: $('p_profile_system').value, userTemplate: $('p_profile_userTemplate').value }
   };
   await api('/admin/api/prompts', { method: 'POST', body: JSON.stringify(payload) });
   setText($('promptsMsg'), '已保存');
@@ -115,6 +112,7 @@ export async function autoSyncPromptsIfEnabled() {
 
 export function initPromptsHandlers() {
   loadImportPrefsIntoUi();
+  initAccordions();
   $('promptsImportUrl')?.addEventListener('change', persistImportPrefsFromUi);
   $('promptsAutoSync')?.addEventListener('change', persistImportPrefsFromUi);
 
@@ -126,5 +124,16 @@ export function initPromptsHandlers() {
   });
   $('importPromptsBtn')?.addEventListener('click', () => {
     runBusy($('importPromptsBtn'), () => importPrompts().catch(e => setText($('promptsImportMsg'), String(e?.message || e))), '导入中...');
+  });
+}
+
+function initAccordions() {
+  const accordions = document.querySelectorAll('.accordion');
+  accordions.forEach(accordion => {
+    const header = accordion.querySelector('.accordion-header');
+    if (!header) return;
+    header.addEventListener('click', () => {
+      accordion.classList.toggle('open');
+    });
   });
 }

@@ -58,13 +58,6 @@ export type UserProfileRecord = {
   updatedAt: number;
 };
 
-export type AtriSelfReviewRecord = {
-  userId: string;
-  content?: string | null;
-  createdAt: number;
-  updatedAt: number;
-};
-
 export type PadValues = [number, number, number];
 
 export type UserStateRecord = {
@@ -159,20 +152,22 @@ export async function saveConversationLog(env: Env, payload: ConversationLogInpu
 export async function fetchConversationLogs(env: Env, userId: string, date: string): Promise<ConversationLogRecord[]> {
   await ensureConversationTables(env);
   const result = await env.db.query(
-    `SELECT id,
-            user_id as "userId",
-            date,
-            role,
-            content,
-            attachments,
-            mood,
-            reply_to as "replyTo",
-            timestamp,
-            user_name as "userName",
-            time_zone as "timeZone"
-       FROM conversation_logs
-      WHERE user_id = $1 AND date = $2
-      ORDER BY timestamp ASC`,
+    `SELECT logs.id,
+            logs.user_id as "userId",
+            logs.date,
+            logs.role,
+            logs.content,
+            logs.attachments,
+            logs.mood,
+            logs.reply_to as "replyTo",
+            logs.timestamp,
+            logs.user_name as "userName",
+            logs.time_zone as "timeZone"
+       FROM conversation_logs logs
+       LEFT JOIN conversation_log_tombstones tombstones
+         ON logs.user_id = tombstones.user_id AND logs.id = tombstones.log_id
+      WHERE logs.user_id = $1 AND logs.date = $2 AND tombstones.log_id IS NULL
+      ORDER BY logs.timestamp ASC`,
     [userId, date]
   );
 
@@ -212,25 +207,27 @@ export async function fetchConversationLogsAfter(
     ? params.roles.filter(role => role === 'user' || role === 'atri')
     : [];
 
-  let sql = `SELECT id,
-                    user_id as "userId",
-                    date,
-                    role,
-                    content,
-                    attachments,
-                    mood,
-                    reply_to as "replyTo",
-                    timestamp,
-                    user_name as "userName",
-                    time_zone as "timeZone"
-               FROM conversation_logs
-              WHERE user_id = $1 AND timestamp > $2`;
+  let sql = `SELECT logs.id,
+                    logs.user_id as "userId",
+                    logs.date,
+                    logs.role,
+                    logs.content,
+                    logs.attachments,
+                    logs.mood,
+                    logs.reply_to as "replyTo",
+                    logs.timestamp,
+                    logs.user_name as "userName",
+                    logs.time_zone as "timeZone"
+               FROM conversation_logs logs
+               LEFT JOIN conversation_log_tombstones tombstones
+                 ON logs.user_id = tombstones.user_id AND logs.id = tombstones.log_id
+              WHERE logs.user_id = $1 AND logs.timestamp > $2 AND tombstones.log_id IS NULL`;
   const binds: any[] = [userId, after];
   if (roles.length) {
-    sql += ` AND role = ANY($3::text[])`;
+    sql += ` AND logs.role = ANY($3::text[])`;
     binds.push(roles);
   }
-  sql += ` ORDER BY timestamp ASC LIMIT $${binds.length + 1}`;
+  sql += ` ORDER BY logs.timestamp ASC LIMIT $${binds.length + 1}`;
   binds.push(limit);
 
   const result = await env.db.query(sql, binds);
@@ -450,6 +447,17 @@ export async function listDiaryEntries(env: Env, userId: string, limit = 7) {
   })) as DiaryEntryRecord[];
 }
 
+export async function markDiaryPending(env: Env, userId: string, date: string) {
+  const now = Date.now();
+  const result = await env.db.query(
+    `UPDATE diary_entries
+        SET status = 'pending', updated_at = $3
+      WHERE user_id = $1 AND date = $2`,
+    [userId, date, now]
+  );
+  return Number(result.rowCount || 0);
+}
+
 export async function getUserModelPreference(env: Env, userId: string): Promise<string | null> {
   const result = await env.db.query(
     `SELECT model_key as "modelKey"
@@ -503,41 +511,6 @@ export async function saveUserProfile(env: Env, params: { userId: string; conten
   const cleaned = String(params.content || '').trim();
   await env.db.query(
     `INSERT INTO user_profiles (user_id, content, created_at, updated_at)
-     VALUES ($1,$2,$3,$4)
-     ON CONFLICT (user_id) DO UPDATE SET
-       content = EXCLUDED.content,
-       updated_at = EXCLUDED.updated_at`,
-    [params.userId, cleaned, now, now]
-  );
-  return { userId: params.userId, updatedAt: now };
-}
-
-export async function getAtriSelfReview(env: Env, userId: string): Promise<AtriSelfReviewRecord | null> {
-  const result = await env.db.query(
-    `SELECT user_id as "userId",
-            content,
-            created_at as "createdAt",
-            updated_at as "updatedAt"
-       FROM atri_self_reviews
-      WHERE user_id = $1
-      LIMIT 1`,
-    [userId]
-  );
-  const row = result.rows?.[0];
-  if (!row) return null;
-  return {
-    userId: String(row.userId),
-    content: typeof row.content === 'string' ? row.content : null,
-    createdAt: Number(row.createdAt || 0),
-    updatedAt: Number(row.updatedAt || 0)
-  };
-}
-
-export async function saveAtriSelfReview(env: Env, params: { userId: string; content: string }) {
-  const now = Date.now();
-  const cleaned = String(params.content || '').trim();
-  await env.db.query(
-    `INSERT INTO atri_self_reviews (user_id, content, created_at, updated_at)
      VALUES ($1,$2,$3,$4)
      ON CONFLICT (user_id) DO UPDATE SET
        content = EXCLUDED.content,
@@ -804,6 +777,39 @@ export async function markConversationLogsDeleted(env: Env, userId: string, ids:
     [trimmedUserId, trimmedIds, deletedAt]
   );
   return Number(result.rowCount || 0);
+}
+
+export type TombstoneRecord = {
+  logId: string;
+  deletedAt: number;
+};
+
+export async function fetchTombstonesAfter(
+  env: Env,
+  params: { userId: string; after?: number; limit?: number }
+): Promise<TombstoneRecord[]> {
+  await ensureConversationTables(env);
+
+  const userId = String(params.userId || '').trim();
+  if (!userId) return [];
+
+  const after = typeof params.after === 'number' && Number.isFinite(params.after) ? params.after : 0;
+  const rawLimit = typeof params.limit === 'number' ? params.limit : 100;
+  const limit = Math.min(Math.max(rawLimit, 1), 500);
+
+  const result = await env.db.query(
+    `SELECT log_id as "logId", deleted_at as "deletedAt"
+       FROM conversation_log_tombstones
+      WHERE user_id = $1 AND deleted_at > $2
+      ORDER BY deleted_at ASC
+      LIMIT $3`,
+    [userId, after, limit]
+  );
+
+  return (result.rows || []).map((row: any) => ({
+    logId: String(row.logId || ''),
+    deletedAt: Number(row.deletedAt || 0)
+  }));
 }
 
 export async function deleteConversationLogsByIds(env: Env, userId: string, ids: string[]) {
