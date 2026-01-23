@@ -11,6 +11,7 @@ import me.atri.data.api.AtriApiService
 import me.atri.data.api.request.ChatRequest
 import me.atri.data.api.request.ConversationDeleteRequest
 import me.atri.data.api.request.ConversationLogRequest
+import me.atri.data.api.request.InvalidateMemoryRequest
 import me.atri.data.db.dao.MessageDao
 import me.atri.data.db.dao.MessageVersionDao
 import me.atri.data.db.entity.MessageEntity
@@ -36,15 +37,12 @@ import java.time.temporal.ChronoUnit
 import java.util.concurrent.TimeUnit
 import me.atri.data.model.LastConversationInfo
 import me.atri.data.api.response.BioChatResponse
-import me.atri.data.api.response.ConversationPullResponse
+import me.atri.data.api.response.ConversationLogItem
 
 data class ChatResult(
     val reply: String,
     val mood: BioChatResponse.Mood?,
-    val intimacy: Int,
-    val replyLogId: String? = null,
-    val replyTimestamp: Long? = null,
-    val replyTo: String? = null
+    val intimacy: Int
 )
 
 class ChatRepository(
@@ -65,8 +63,6 @@ class ChatRepository(
             pattern = "^\\[[^]]+\\]\\s*",
             options = setOf(RegexOption.MULTILINE)
         )
-
-        private const val PULL_SKEW_MS = 2000L
     }
 
     private val mediaHttpClient = OkHttpClient.Builder()
@@ -159,12 +155,7 @@ class ChatRepository(
         }
     }
 
-    suspend fun persistAtriMessage(
-        finalMessage: MessageEntity,
-        mood: BioChatResponse.Mood? = null,
-        replyTo: String? = null,
-        syncRemote: Boolean = true
-    ) = withContext(Dispatchers.IO) {
+    suspend fun persistAtriMessage(finalMessage: MessageEntity, mood: BioChatResponse.Mood? = null) = withContext(Dispatchers.IO) {
         val cleanedContent = cleanTimestampPrefix(finalMessage.content)
         // 将 PAD 状态转换为 JSON 字符串存储
         val moodJson = if (mood != null) {
@@ -193,20 +184,17 @@ class ChatRepository(
 
         markConversationTouched(persisted.timestamp)
 
-        if (syncRemote) {
-            val userId = preferencesStore.ensureUserId()
-            logConversationSafely(
-                logId = persisted.id,
-                userId = userId,
-                userName = null,
-                role = "atri",
-                content = persisted.content,
-                timestamp = persisted.timestamp,
-                attachments = persisted.attachments,
-                mood = persisted.mood,
-                replyTo = replyTo
-            )
-        }
+        val userId = preferencesStore.ensureUserId()
+        logConversationSafely(
+            logId = persisted.id,
+            userId = userId,
+            userName = null,
+            role = "atri",
+            content = persisted.content,
+            timestamp = persisted.timestamp,
+            attachments = persisted.attachments,
+            mood = persisted.mood
+        )
     }
 
     suspend fun editMessage(
@@ -281,6 +269,24 @@ class ChatRepository(
             response.body()?.close()
         }.onFailure {
             println("对话日志删除失败: ${it.message}")
+        }
+    }
+
+    suspend fun invalidateMemoryForDates(dates: Set<String>) = withContext(Dispatchers.IO) {
+        if (dates.isEmpty()) return@withContext
+        val userId = preferencesStore.ensureUserId()
+        for (date in dates) {
+            runCatching {
+                val response = apiService.invalidateMemory(
+                    InvalidateMemoryRequest(userId = userId, date = date)
+                )
+                if (!response.isSuccessful) {
+                    throw IllegalStateException("invalidate memory failed: ${response.code()}")
+                }
+                response.body()?.close()
+            }.onFailure {
+                println("记忆失效失败 ($date): ${it.message}")
+            }
         }
     }
 
@@ -381,8 +387,7 @@ class ChatRepository(
             attachments = requestAttachments.map { it.toPayload() },
             userName = userName.takeIf { it.isNotBlank() },
             clientTimeIso = currentClientTimeIso(),
-            modelKey = preferredModel,
-            timeZone = zoneId.id
+            modelKey = preferredModel
         )
     }
 
@@ -396,14 +401,10 @@ class ChatRepository(
         if (reply.isEmpty()) {
             throw Exception("空回复")
         }
-        val replyTo = body?.replyTo?.trim()?.takeIf { it.isNotBlank() } ?: request.logId
         return ChatResult(
             reply = reply,
             mood = body?.mood,
-            intimacy = body?.intimacy ?: 0,
-            replyLogId = body?.replyLogId?.trim()?.takeIf { it.isNotBlank() },
-            replyTimestamp = body?.replyTimestamp,
-            replyTo = replyTo
+            intimacy = body?.intimacy ?: 0
         )
     }
 
@@ -552,8 +553,7 @@ class ChatRepository(
         content: String,
         timestamp: Long,
         attachments: List<Attachment>,
-        mood: String? = null,
-        replyTo: String? = null
+        mood: String? = null
     ) {
         if (content.isBlank()) return
         val date = Instant.ofEpochMilli(timestamp)
@@ -570,8 +570,7 @@ class ChatRepository(
             userName = userName,
             timeZone = zoneId.id,
             date = date,
-            mood = mood,
-            replyTo = replyTo
+            mood = mood
         )
         runCatching {
             val response = apiService.logConversation(request)
@@ -625,102 +624,6 @@ class ChatRepository(
         preferencesStore.setLastConversationDate(date)
     }
 
-    private fun ConversationPullResponse.AttachmentPayload.toAttachment(): Attachment? {
-        val normalizedType = when (type.trim().lowercase()) {
-            AttachmentContract.TYPE_IMAGE -> AttachmentType.IMAGE
-            AttachmentContract.TYPE_DOCUMENT -> AttachmentType.DOCUMENT
-            else -> null
-        } ?: return null
-        val safeUrl = url.trim()
-        if (safeUrl.isBlank()) return null
-        return Attachment(
-            type = normalizedType,
-            url = safeUrl,
-            mime = mime ?: "application/octet-stream",
-            name = name,
-            sizeBytes = sizeBytes
-        )
-    }
-
-    suspend fun syncConversationHistory(limit: Int = 200): Result<Int> = withContext(Dispatchers.IO) {
-        try {
-            val token = preferencesStore.appToken.first().trim()
-            val baseUrl = preferencesStore.apiUrl.first().trim()
-            if (token.isBlank() || baseUrl.isBlank()) {
-                return@withContext Result.success(0)
-            }
-
-            val userId = preferencesStore.ensureUserId()
-            val existingIds = messageDao.getMessageIds().toHashSet()
-            val lastLocalTimestamp = messageDao.getRecentMessages(1).firstOrNull()?.timestamp ?: 0L
-
-            var after = if (lastLocalTimestamp > 0L) {
-                (lastLocalTimestamp - PULL_SKEW_MS).coerceAtLeast(0L)
-            } else {
-                0L
-            }
-            var normalizedTimestamp = after
-            var latestTimestamp = lastLocalTimestamp
-            var inserted = 0
-
-            while (true) {
-                val response = apiService.pullConversationLogs(
-                    userId = userId,
-                    after = after,
-                    limit = limit,
-                    role = null
-                )
-                if (!response.isSuccessful) {
-                    return@withContext Result.failure(Exception("conversation pull failed: ${response.code()}"))
-                }
-                val logs = response.body()?.logs.orEmpty()
-                if (logs.isEmpty()) break
-
-                logs.forEach { log ->
-                    val id = log.id.trim()
-                    if (id.isBlank() || existingIds.contains(id)) return@forEach
-
-                    val rawTimestamp = if (log.timestamp > 0L) log.timestamp else System.currentTimeMillis()
-                    val timestamp = if (rawTimestamp <= normalizedTimestamp) {
-                        normalizedTimestamp + 1
-                    } else {
-                        rawTimestamp
-                    }
-                    normalizedTimestamp = timestamp
-                    latestTimestamp = maxOf(latestTimestamp, timestamp)
-
-                    val isFromAtri = log.role.trim().lowercase() == "atri"
-                    val content = if (isFromAtri) cleanTimestampPrefix(log.content) else log.content
-                    val attachments = log.attachments.mapNotNull { it.toAttachment() }
-
-                    val message = MessageEntity(
-                        id = id,
-                        content = content,
-                        isFromAtri = isFromAtri,
-                        timestamp = timestamp,
-                        attachments = attachments,
-                        mood = if (isFromAtri) log.mood else null
-                    )
-                    messageDao.insert(message)
-                    existingIds.add(id)
-                    inserted += 1
-                }
-
-                if (logs.size < limit) break
-                val nextAfter = logs.maxOfOrNull { it.timestamp } ?: after
-                after = if (nextAfter > after) nextAfter else normalizedTimestamp
-            }
-
-            if (latestTimestamp > 0L) {
-                markConversationTouched(latestTimestamp)
-            }
-
-            Result.success(inserted)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
     suspend fun fetchLastConversationInfo(): Result<LastConversationInfo?> = withContext(Dispatchers.IO) {
         try {
             val userId = preferencesStore.ensureUserId()
@@ -755,7 +658,116 @@ class ChatRepository(
             LastConversationInfo(stored, diff)
         }.getOrNull()
     }
+
+    /**
+     * 从服务器拉取远程历史记录并与本地合并
+     * - 首次同步：拉取最近30天的完整数据（分页）
+     * - 增量同步：只拉取本地最新时间戳之后的数据
+     * - tombstones 中的消息从本地删除
+     */
+    suspend fun syncRemoteHistory(): Result<SyncResult> = withContext(Dispatchers.IO) {
+        try {
+            val userId = preferencesStore.ensureUserId()
+            val localLatest = messageDao.getLatestTimestamp() ?: 0L
+            val localEarliest = messageDao.getEarliestTimestamp() ?: Long.MAX_VALUE
+
+            // 计算30天前的时间戳
+            val thirtyDaysAgoMs = System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000
+
+            // 决定同步起点：
+            // - 如果本地没有数据或最早数据晚于30天前，从30天前开始拉取
+            // - 否则只做增量同步（从本地最新时间戳开始）
+            val needFullSync = localLatest == 0L || localEarliest > thirtyDaysAgoMs
+            val syncStartTimestamp = if (needFullSync) thirtyDaysAgoMs else localLatest
+
+            var insertedCount = 0
+            var deletedCount = 0
+            var currentAfter = syncStartTimestamp
+
+            // 分页拉取，每次最多200条
+            while (true) {
+                val response = apiService.pullConversation(
+                    userId = userId,
+                    after = currentAfter,
+                    limit = 200,
+                    tombstones = true
+                )
+
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(Exception("pull conversation failed: ${response.code()}"))
+                }
+
+                val body = response.body() ?: break
+
+                if (body.logs.isEmpty()) break
+
+                // 处理新消息
+                for (log in body.logs) {
+                    val existingMessage = messageDao.getMessageById(log.id)
+                    if (existingMessage == null) {
+                        val entity = log.toMessageEntity()
+                        messageDao.insert(entity)
+                        insertedCount++
+                    }
+                }
+
+                // 处理 tombstones（删除的消息）
+                val tombstones = body.tombstones
+                if (!tombstones.isNullOrEmpty()) {
+                    val idsToDelete = tombstones.map { it.logId }
+                    messageDao.deleteByIds(idsToDelete)
+                    deletedCount += idsToDelete.size
+                }
+
+                // 如果返回数据少于200条，说明已经拉完
+                if (body.logs.size < 200) break
+
+                // 更新游标为最后一条消息的时间戳
+                currentAfter = body.logs.maxOfOrNull { it.timestamp } ?: break
+            }
+
+            Result.success(SyncResult(insertedCount, deletedCount))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun ConversationLogItem.toMessageEntity(): MessageEntity {
+        val attachmentList = attachments.map { att ->
+            Attachment(
+                type = when (att.type) {
+                    AttachmentContract.TYPE_IMAGE -> AttachmentType.IMAGE
+                    AttachmentContract.TYPE_DOCUMENT -> AttachmentType.DOCUMENT
+                    else -> AttachmentType.DOCUMENT
+                },
+                url = att.url,
+                mime = att.mime ?: "",
+                name = att.name ?: "",
+                sizeBytes = att.sizeBytes
+            )
+        }
+
+        return MessageEntity(
+            id = id,
+            content = content,
+            isFromAtri = role == "atri",
+            timestamp = timestamp,
+            attachments = attachmentList,
+            mood = mood,
+            isDeleted = false,
+            isImportant = false,
+            currentVersionIndex = 0,
+            totalVersions = 1
+        )
+    }
 }
+
+data class SyncResult(
+    val insertedCount: Int,
+    val deletedCount: Int
+)
 
 
 

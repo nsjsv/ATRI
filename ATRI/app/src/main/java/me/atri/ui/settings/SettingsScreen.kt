@@ -115,8 +115,8 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = apiUrl,
                         onValueChange = { apiUrl = it },
-                        label = { Text("API URL") },
-                        placeholder = { Text("https://example.com") },
+                        label = { Text("API 地址") },
+                        placeholder = { Text("https://your-server.example.com") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -125,13 +125,13 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !uiState.isLoading
                     ) {
-                        Text(if (uiState.isLoading) "保存中..." else "保存 API URL")
+                        Text(if (uiState.isLoading) "保存中..." else "保存 API 地址")
                     }
                     OutlinedTextField(
                         value = appToken,
                         onValueChange = { appToken = it },
                         label = { Text("鉴权 Token (X-App-Token)") },
-                        placeholder = { Text("填入与你的 Worker 配置一致的 Token") },
+                        placeholder = { Text("填入与你的 API 配置一致的 Token") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -194,7 +194,7 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = uiState.userId,
                         onValueChange = {},
-                        label = { Text("当前账号 ID") },
+                        label = { Text("当前 UID") },
                         modifier = Modifier.fillMaxWidth(),
                         readOnly = true,
                         trailingIcon = {
@@ -208,8 +208,8 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = importUserId,
                         onValueChange = { importUserId = it },
-                        label = { Text("导入旧账号 ID") },
-                        placeholder = { Text("粘贴之前备份的 ID") },
+                        label = { Text("导入旧 UID") },
+                        placeholder = { Text("粘贴之前备份的 UID") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -218,7 +218,7 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = importUserId.isNotBlank()
                     ) {
-                        Text("使用这个 ID")
+                        Text("使用这个 UID")
                     }
                 }
             }

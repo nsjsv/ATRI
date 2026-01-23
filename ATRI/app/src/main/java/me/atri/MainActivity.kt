@@ -24,6 +24,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import me.atri.data.datastore.PreferencesStore
+import me.atri.data.repository.ChatRepository
 import me.atri.ui.chat.ChatScreen
 import me.atri.ui.diary.DiaryScreen
 import me.atri.ui.settings.SettingsScreen
@@ -33,6 +34,7 @@ import kotlinx.coroutines.flow.collectLatest
 
 class MainActivity : ComponentActivity() {
     private val preferencesStore: PreferencesStore by inject()
+    private val chatRepository: ChatRepository by inject()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,7 +45,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AtriApp(preferencesStore)
+                    AtriApp(preferencesStore, chatRepository)
                 }
             }
         }
@@ -56,9 +58,11 @@ private enum class AppScreen {
 }
 
 @Composable
-fun AtriApp(preferencesStore: PreferencesStore) {
+fun AtriApp(preferencesStore: PreferencesStore, chatRepository: ChatRepository) {
     val lifecycleOwner = LocalLifecycleOwner.current
     var isFirstLaunch by remember { mutableStateOf<Boolean?>(null) }
+    var isSyncing by remember { mutableStateOf(true) }
+
     LaunchedEffect(preferencesStore, lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             preferencesStore.isFirstLaunch.collectLatest { value ->
@@ -66,6 +70,17 @@ fun AtriApp(preferencesStore: PreferencesStore) {
             }
         }
     }
+
+    // 启动时同步30天聊天记录
+    LaunchedEffect(Unit) {
+        try {
+            chatRepository.syncRemoteHistory()
+        } catch (_: Exception) {
+        } finally {
+            isSyncing = false
+        }
+    }
+
     var showSettings by remember { mutableStateOf(false) }
     var showDiary by remember { mutableStateOf(false) }
     var chatWelcomeDismissed by rememberSaveable { mutableStateOf(false) }
@@ -85,7 +100,7 @@ fun AtriApp(preferencesStore: PreferencesStore) {
     }
 
     val currentScreen = when {
-        isFirstLaunch == null -> AppScreen.LOADING
+        isFirstLaunch == null || isSyncing -> AppScreen.LOADING
         showSettings -> AppScreen.SETTINGS
         showDiary -> AppScreen.DIARY
         else -> AppScreen.CHAT
