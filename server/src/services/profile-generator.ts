@@ -18,6 +18,7 @@ export type UserProfileGenerationResult = {
 };
 
 export async function generateUserProfile(env: Env, params: {
+  userId?: string;
   transcript: string;
   diaryContent: string;
   date: string;
@@ -62,7 +63,8 @@ export async function generateUserProfile(env: Env, params: {
       temperature: settings.profileTemperature,
       maxTokens: 1024,
       timeoutMs: 90000,
-      anthropicVersion: settings.anthropicVersion
+      anthropicVersion: settings.anthropicVersion,
+      trace: { scope: 'profile', userId: params.userId }
     });
 
     const content = result.message?.content;

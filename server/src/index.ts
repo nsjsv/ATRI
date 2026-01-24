@@ -2,6 +2,8 @@ import 'dotenv/config';
 import { buildApp } from './app';
 import { loadEnv } from './runtime/env';
 import { bootstrapDatabase } from './services/db-bootstrap';
+import { startDiaryScheduler } from './jobs/diary-scheduler';
+import { maybeStartMemoryRebuildOnBoot } from './jobs/memory-rebuild';
 
 async function main() {
   const env = loadEnv(process.env);
@@ -14,6 +16,13 @@ async function main() {
   try {
     await app.listen({ host, port });
     app.log.info({ host, port }, '[ATRI] server started');
+    startDiaryScheduler(env, {
+      enabled: process.env.DIARY_CRON_ENABLED,
+      time: process.env.DIARY_CRON_TIME || '23:59',
+      timeZone: process.env.DIARY_CRON_TIMEZONE || undefined,
+      catchupDays: process.env.DIARY_CRON_CATCHUP_DAYS
+    });
+    maybeStartMemoryRebuildOnBoot(env);
   } catch (error) {
     app.log.error(error, '[ATRI] server failed to start');
     process.exit(1);

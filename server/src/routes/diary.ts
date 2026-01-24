@@ -84,6 +84,7 @@ export function registerDiaryRoutes(app: FastifyInstance, env: Env) {
 
       const diary = await generateDiaryFromConversation(env, {
         conversation: transcript,
+        userId,
         userName: detectedUserName || '这个人',
         date,
         daysSinceLastChat: daysSince,
@@ -118,6 +119,7 @@ export function registerDiaryRoutes(app: FastifyInstance, env: Env) {
       try {
         const previousProfile = await getUserProfile(env, userId);
         const profile = await generateUserProfile(env, {
+          userId,
           transcript,
           diaryContent: '',
           date,

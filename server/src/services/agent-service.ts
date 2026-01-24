@@ -1,4 +1,5 @@
 import { AttachmentPayload, ContentPart, Env } from '../runtime/types';
+import { pushAppLog } from '../admin/log-buffer';
 import {
   buildHistoryContentParts,
   buildUserContentParts,
@@ -54,6 +55,18 @@ type AgentToolCall = {
 };
 
 export async function runAgentChat(env: Env, params: AgentChatParams): Promise<AgentChatResult> {
+  pushAppLog('info', 'chat_in', {
+    event: 'chat_in',
+    userId: params.userId,
+    platform: params.platform,
+    model: params.model,
+    logId: params.logId,
+    clientTimeIso: params.clientTimeIso,
+    message: params.messageText,
+    attachments: params.attachments?.length || 0,
+    hasInlineImage: Boolean(params.inlineImage)
+  });
+
   const settings = await getEffectiveRuntimeSettings(env);
   const agentSystemTemplate = String((settings.prompts as any)?.agent?.system || '');
 
@@ -159,6 +172,14 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     updatedAt: Date.now()
   };
   await saveUserState(env, finalState);
+
+  pushAppLog('info', 'chat_out', {
+    event: 'chat_out',
+    userId: params.userId,
+    reply,
+    intimacy: finalState.intimacy,
+    pad: finalState.padValues
+  });
 
   return {
     reply: sanitizeAssistantReply(reply) || AGENT_FALLBACK_REPLY,
@@ -461,7 +482,8 @@ async function runToolLoop(env: Env, params: {
         temperature: params.temperature,
         maxTokens: params.maxTokens,
         timeoutMs: 120000,
-        anthropicVersion: params.anthropicVersion
+        anthropicVersion: params.anthropicVersion,
+        trace: { scope: 'agent', userId: params.userId }
       });
       message = result.message;
     } catch (error) {
@@ -480,6 +502,16 @@ async function runToolLoop(env: Env, params: {
       });
 
       for (const call of toolCalls) {
+        const toolName = call.function?.name || '';
+        pushAppLog('info', 'tool_call', {
+          event: 'tool_call',
+          userId: params.userId,
+          toolCallId: call.id,
+          tool: toolName,
+          arguments: call.function?.arguments || ''
+        });
+
+        const toolStartedAt = Date.now();
         const result = await executeAgentTool(call, env, params.userId, params.userName, latestState, params.contextDate);
         if (result.updatedState) {
           latestState = result.updatedState;
@@ -489,6 +521,15 @@ async function runToolLoop(env: Env, params: {
           tool_call_id: call.id,
           name: call.function?.name,
           content: result.output
+        });
+
+        pushAppLog('info', 'tool_result', {
+          event: 'tool_result',
+          userId: params.userId,
+          toolCallId: call.id,
+          tool: toolName,
+          durationMs: Date.now() - toolStartedAt,
+          output: result.output
         });
       }
 

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Env } from '../runtime/types';
+import { pushAppLog } from '../admin/log-buffer';
 import { callChatCompletions, ChatCompletionError } from './openai-service';
 
 export type UpstreamApiFormat = 'openai' | 'anthropic' | 'gemini';
@@ -36,6 +37,79 @@ function normalizeFormat(raw: unknown): UpstreamApiFormat {
   if (text === 'anthropic') return 'anthropic';
   if (text === 'gemini') return 'gemini';
   return 'openai';
+}
+
+function safeHost(urlLike: string) {
+  const raw = String(urlLike || '').trim();
+  if (!raw) return '';
+  try {
+    return new URL(raw).host;
+  } catch {
+    return '';
+  }
+}
+
+function truncateText(value: unknown, maxChars: number) {
+  const text = String(value ?? '').trim();
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 1))}…`;
+}
+
+function summarizeMessages(messages: any[], limit = 8) {
+  const src = Array.isArray(messages) ? messages : [];
+  const sliced = src.length > limit ? src.slice(-limit) : src;
+  const out: any[] = [];
+
+  for (const msg of sliced) {
+    if (!msg || typeof msg !== 'object') continue;
+    const role = (msg as any).role;
+    if (role === 'system') {
+      const content = typeof (msg as any).content === 'string' ? (msg as any).content : '';
+      out.push({ role, text: content ? truncateText(content, 400) : '' });
+      continue;
+    }
+    if (role === 'user') {
+      const content = (msg as any).content;
+      if (typeof content === 'string') {
+        out.push({ role, text: truncateText(content, 800) });
+        continue;
+      }
+      if (Array.isArray(content)) {
+        const types = content.map((p: any) => p?.type).filter(Boolean);
+        const textPart = content.find((p: any) => p?.type === 'text' && typeof p?.text === 'string');
+        out.push({
+          role,
+          parts: types.slice(0, 12),
+          text: textPart?.text ? truncateText(textPart.text, 800) : ''
+        });
+        continue;
+      }
+      out.push({ role, text: truncateText(content, 800) });
+      continue;
+    }
+    if (role === 'assistant') {
+      const content = (msg as any).content;
+      const toolCalls = Array.isArray((msg as any).tool_calls) ? (msg as any).tool_calls : [];
+      out.push({
+        role,
+        text: typeof content === 'string' ? truncateText(content, 800) : content == null ? '' : truncateText(content, 800),
+        toolCalls: toolCalls.map((c: any) => String(c?.function?.name || '')).filter(Boolean).slice(0, 8)
+      });
+      continue;
+    }
+    if (role === 'tool') {
+      out.push({
+        role,
+        name: String((msg as any).name || '').trim() || undefined,
+        tool_call_id: String((msg as any).tool_call_id || '').trim() || undefined,
+        text: truncateText((msg as any).content, 800)
+      });
+      continue;
+    }
+    out.push({ role: String(role || 'unknown') });
+  }
+
+  return out;
 }
 
 function buildSystemText(messages: any[]) {
@@ -421,6 +495,7 @@ export async function callUpstreamChat(env: Env, params: {
   maxTokens?: number;
   timeoutMs?: number;
   anthropicVersion?: string;
+  trace?: { scope?: string; userId?: string };
 }) {
   const format = normalizeFormat(params.format);
   const apiUrl = String(params.apiUrl || '').trim();
@@ -433,69 +508,188 @@ export async function callUpstreamChat(env: Env, params: {
   }
 
   const versionedApiUrl = withAutoApiVersion(apiUrl, format);
+  const trace = params.trace || {};
+  const startedAt = Date.now();
+  const apiHost = safeHost(versionedApiUrl) || safeHost(apiUrl);
 
-  if (format === 'openai') {
-    const response = await callChatCompletions(
-      env,
-      {
-        messages: params.messages,
-        tools: params.tools,
-        tool_choice: params.tools && Array.isArray(params.tools) && params.tools.length ? 'auto' : undefined,
-        temperature: params.temperature,
-        stream: false,
-        max_tokens: params.maxTokens
-      },
-      {
-        timeoutMs,
+  pushAppLog('info', 'llm_request', {
+    event: 'llm_request',
+    scope: trace.scope,
+    userId: trace.userId,
+    format,
+    model,
+    apiHost,
+    timeoutMs,
+    messageCount: Array.isArray(params.messages) ? params.messages.length : 0,
+    toolCount: Array.isArray(params.tools) ? params.tools.length : 0,
+    messages: summarizeMessages(params.messages, 8)
+  });
+
+  try {
+    if (format === 'openai') {
+      const response = await callChatCompletions(
+        env,
+        {
+          messages: params.messages,
+          tools: params.tools,
+          tool_choice: params.tools && Array.isArray(params.tools) && params.tools.length ? 'auto' : undefined,
+          temperature: params.temperature,
+          stream: false,
+          max_tokens: params.maxTokens
+        },
+        {
+          timeoutMs,
+          model,
+          apiUrl: versionedApiUrl,
+          apiKey
+        }
+      );
+      const data = await response.json();
+      const extracted = extractOpenAiAssistantMessage(data);
+      pushAppLog('info', 'llm_response', {
+        event: 'llm_response',
+        scope: trace.scope,
+        userId: trace.userId,
+        format,
         model,
-        apiUrl: versionedApiUrl,
-        apiKey
-      }
-    );
-    const data = await response.json();
-    const extracted = extractOpenAiAssistantMessage(data);
-    return {
-      message: {
-        content: extracted.content,
-        tool_calls: extracted.toolCalls
-      },
-      raw: data
-    };
-  }
+        apiHost,
+        durationMs: Date.now() - startedAt,
+        usage: (data as any)?.usage,
+        content: extracted.content ? truncateText(extracted.content, 1200) : null,
+        toolCalls: extracted.toolCalls?.map((c) => ({
+          id: c.id,
+          name: c.function?.name,
+          arguments: c.function?.arguments ? truncateText(c.function.arguments, 1200) : ''
+        }))
+      });
+      return {
+        message: {
+          content: extracted.content,
+          tool_calls: extracted.toolCalls
+        },
+        raw: data
+      };
+    }
 
-  if (format === 'anthropic') {
-    const { system, messages } = await openAiMessagesToAnthropic(env, params.messages);
-    const anthropicTools = openAiToolsToAnthropic(params.tools || []);
+    if (format === 'anthropic') {
+      const { system, messages } = await openAiMessagesToAnthropic(env, params.messages);
+      const anthropicTools = openAiToolsToAnthropic(params.tools || []);
+      const body: any = {
+        model,
+        max_tokens: Math.max(1, Math.trunc(params.maxTokens ?? 1024)),
+        temperature: typeof params.temperature === 'number' ? params.temperature : undefined,
+        system: system || undefined,
+        messages,
+        tools: anthropicTools.length ? anthropicTools : undefined,
+        tool_choice: anthropicTools.length ? { type: 'auto' } : undefined
+      };
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(joinUrl(versionedApiUrl, 'messages'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'authorization': `Bearer ${apiKey}`,
+            'anthropic-version': String(params.anthropicVersion || '2023-06-01').trim() || '2023-06-01'
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new ChatCompletionError('anthropic', res.status, text);
+        }
+        const data = await res.json();
+        const extracted = extractAnthropicAssistantMessage(data);
+        pushAppLog('info', 'llm_response', {
+          event: 'llm_response',
+          scope: trace.scope,
+          userId: trace.userId,
+          format,
+          model,
+          apiHost,
+          durationMs: Date.now() - startedAt,
+          content: extracted.content ? truncateText(extracted.content, 1200) : null,
+          toolCalls: extracted.toolCalls?.map((c) => ({
+            id: c.id,
+            name: c.function?.name,
+            arguments: c.function?.arguments ? truncateText(c.function.arguments, 1200) : ''
+          }))
+        });
+        return {
+          message: {
+            content: extracted.content,
+            tool_calls: extracted.toolCalls
+          },
+          raw: data
+        };
+      } catch (error: any) {
+        if (error?.name === 'AbortError') {
+          throw new ChatCompletionError('anthropic', 504, `Request timeout after ${timeoutMs}ms`);
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+
+    const { systemInstruction, contents } = await openAiMessagesToGemini(env, params.messages);
+    const decls = openAiToolsToGemini(params.tools || []);
+
+    const modelName = model.startsWith('models/') ? model.slice('models/'.length) : model;
+    const url = new URL(joinUrl(versionedApiUrl, `models/${encodeURIComponent(modelName)}:generateContent`));
+    url.searchParams.set('key', apiKey);
+
     const body: any = {
-      model,
-      max_tokens: Math.max(1, Math.trunc(params.maxTokens ?? 1024)),
-      temperature: typeof params.temperature === 'number' ? params.temperature : undefined,
-      system: system || undefined,
-      messages,
-      tools: anthropicTools.length ? anthropicTools : undefined,
-      tool_choice: anthropicTools.length ? { type: 'auto' } : undefined
+      contents,
+      systemInstruction,
+      generationConfig: {
+        temperature: typeof params.temperature === 'number' ? params.temperature : undefined,
+        maxOutputTokens: Math.max(1, Math.trunc(params.maxTokens ?? 1024))
+      }
     };
+    if (decls.length) {
+      body.tools = [{ functionDeclarations: decls }];
+      body.toolConfig = { functionCallingConfig: { mode: 'AUTO' } };
+    }
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(joinUrl(versionedApiUrl, 'messages'), {
+      const res = await fetch(url.toString(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'authorization': `Bearer ${apiKey}`,
-          'anthropic-version': String(params.anthropicVersion || '2023-06-01').trim() || '2023-06-01'
+          'x-goog-api-key': apiKey,
+          'authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify(body),
         signal: controller.signal
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        throw new ChatCompletionError('anthropic', res.status, text);
+        throw new ChatCompletionError('gemini', res.status, text);
       }
       const data = await res.json();
-      const extracted = extractAnthropicAssistantMessage(data);
+      const extracted = extractGeminiAssistantMessage(data);
+      pushAppLog('info', 'llm_response', {
+        event: 'llm_response',
+        scope: trace.scope,
+        userId: trace.userId,
+        format,
+        model,
+        apiHost,
+        durationMs: Date.now() - startedAt,
+        content: extracted.content ? truncateText(extracted.content, 1200) : null,
+        toolCalls: extracted.toolCalls?.map((c) => ({
+          id: c.id,
+          name: c.function?.name,
+          arguments: c.function?.arguments ? truncateText(c.function.arguments, 1200) : ''
+        }))
+      });
       return {
         message: {
           content: extracted.content,
@@ -505,66 +699,23 @@ export async function callUpstreamChat(env: Env, params: {
       };
     } catch (error: any) {
       if (error?.name === 'AbortError') {
-        throw new ChatCompletionError('anthropic', 504, `Request timeout after ${timeoutMs}ms`);
+        throw new ChatCompletionError('gemini', 504, `Request timeout after ${timeoutMs}ms`);
       }
       throw error;
     } finally {
       clearTimeout(timeoutId);
     }
-  }
-
-  const { systemInstruction, contents } = await openAiMessagesToGemini(env, params.messages);
-  const decls = openAiToolsToGemini(params.tools || []);
-
-  const modelName = model.startsWith('models/') ? model.slice('models/'.length) : model;
-  const url = new URL(joinUrl(versionedApiUrl, `models/${encodeURIComponent(modelName)}:generateContent`));
-  url.searchParams.set('key', apiKey);
-
-  const body: any = {
-    contents,
-    systemInstruction,
-    generationConfig: {
-      temperature: typeof params.temperature === 'number' ? params.temperature : undefined,
-      maxOutputTokens: Math.max(1, Math.trunc(params.maxTokens ?? 1024))
-    }
-  };
-  if (decls.length) {
-    body.tools = [{ functionDeclarations: decls }];
-    body.toolConfig = { functionCallingConfig: { mode: 'AUTO' } };
-  }
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url.toString(), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-        'authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new ChatCompletionError('gemini', res.status, text);
-    }
-    const data = await res.json();
-    const extracted = extractGeminiAssistantMessage(data);
-    return {
-      message: {
-        content: extracted.content,
-        tool_calls: extracted.toolCalls
-      },
-      raw: data
-    };
   } catch (error: any) {
-    if (error?.name === 'AbortError') {
-      throw new ChatCompletionError('gemini', 504, `Request timeout after ${timeoutMs}ms`);
-    }
+    pushAppLog('error', 'llm_error', {
+      event: 'llm_error',
+      scope: trace.scope,
+      userId: trace.userId,
+      format,
+      model,
+      apiHost,
+      durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error)
+    });
     throw error;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }

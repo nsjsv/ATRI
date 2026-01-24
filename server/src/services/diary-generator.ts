@@ -32,6 +32,7 @@ async function withRetry<T>(
 
 export async function generateDiaryFromConversation(env: Env, params: {
   conversation: string;
+  userId?: string;
   userName?: string;
   date?: string;
   timestamp?: number;
@@ -87,7 +88,8 @@ export async function generateDiaryFromConversation(env: Env, params: {
       temperature: settings.diaryTemperature,
       maxTokens: settings.diaryMaxTokens,
       timeoutMs: 120000,
-      anthropicVersion: settings.anthropicVersion
+      anthropicVersion: settings.anthropicVersion,
+      trace: { scope: 'diary', userId: params.userId }
     }));
 
     const content = result.message?.content;

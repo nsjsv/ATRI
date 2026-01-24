@@ -14,12 +14,14 @@ import { DEFAULT_TIMEZONE, formatDateInZone } from '../utils/date';
 import { generateDiaryFromConversation } from '../services/diary-generator';
 import { upsertDiaryHighlightsMemory } from '../services/memory-service';
 import { generateUserProfile } from '../services/profile-generator';
+import { pushAppLog } from '../admin/log-buffer';
 
 export async function runDiaryCron(env: Env, targetDate?: string) {
   const date = targetDate || formatDateInZone(Date.now(), DEFAULT_TIMEZONE);
   const pendingUsers = await listPendingDiaryUsers(env, date);
   if (!pendingUsers.length) {
     console.log('[ATRI] No diary tasks for', date);
+    pushAppLog('info', 'diary_cron_no_tasks', { event: 'diary_cron_no_tasks', date });
     return;
   }
 
@@ -41,6 +43,7 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
 
       const diary = await generateDiaryFromConversation(env, {
         conversation: transcript,
+        userId: user.userId,
         userName: user.userName || '这个人',
         date,
         daysSinceLastChat: daysSince,
@@ -73,6 +76,7 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
       try {
         const previousProfile = await getUserProfile(env, user.userId);
         const profile = await generateUserProfile(env, {
+          userId: user.userId,
           transcript,
           diaryContent: '',
           date,
@@ -86,8 +90,15 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
       }
 
       console.log('[ATRI] Diary auto generated for', user.userId, date);
+      pushAppLog('info', 'diary_cron_user_done', { event: 'diary_cron_user_done', userId: user.userId, date });
     } catch (error) {
       console.error('[ATRI] Diary cron failed for user', user.userId, error);
+      pushAppLog('error', 'diary_cron_user_failed', {
+        event: 'diary_cron_user_failed',
+        userId: user.userId,
+        date,
+        error: error instanceof Error ? error.message : String(error)
+      });
       await saveDiaryEntry(env, {
         userId: user.userId,
         date,
