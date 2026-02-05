@@ -19,6 +19,9 @@ data class SettingsUiState(
     val modelName: String = "",
     val userId: String = "",
     val appToken: String = "",
+    val backendType: String = "worker",
+    val serverCurrentModel: String = "",
+    val serverModelLoading: Boolean = false,
     val isLoading: Boolean = false,
     val isClearing: Boolean = false,
     val isSyncing: Boolean = false,
@@ -76,6 +79,11 @@ class SettingsViewModel(
                 _uiState.update { it.copy(appToken = token) }
             }
         }
+        viewModelScope.launch {
+            preferencesStore.backendType.collect { type ->
+                _uiState.update { it.copy(backendType = type) }
+            }
+        }
     }
 
     fun updateApiUrl(url: String) {
@@ -104,6 +112,41 @@ class SettingsViewModel(
         viewModelScope.launch {
             preferencesStore.setAppToken(token.trim())
             _uiState.update { it.copy(statusMessage = "已保存鉴权 Token") }
+        }
+    }
+
+    fun updateBackendType(type: String) {
+        viewModelScope.launch {
+            preferencesStore.setBackendType(type)
+            _uiState.update { it.copy(backendType = type) }
+            if (type == "vps") {
+                fetchServerCurrentModel()
+            }
+        }
+    }
+
+    fun fetchServerCurrentModel() {
+        if (_uiState.value.serverModelLoading) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(serverModelLoading = true) }
+            runCatching {
+                val response = apiService.fetchCurrentModel()
+                if (!response.isSuccessful) {
+                    throw IllegalStateException("请求失败：${response.code()}")
+                }
+                response.body()?.model ?: "未知"
+            }.onSuccess { model ->
+                _uiState.update {
+                    it.copy(serverCurrentModel = model, serverModelLoading = false)
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        serverModelLoading = false,
+                        statusMessage = "获取服务器模型失败：${error.message ?: "未知错误"}"
+                    )
+                }
+            }
         }
     }
 

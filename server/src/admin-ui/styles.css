@@ -607,6 +607,26 @@ select:focus-visible,
   outline-offset: 2px;
 }
 
+/* Input with inline button */
+.input-with-btn {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.input-with-btn input {
+  flex: 1;
+  min-width: 0;
+}
+
+.btn-small {
+  padding: 8px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
 /* Smooth transitions for theme switching */
 body,
 .card,

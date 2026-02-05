@@ -796,4 +796,68 @@ export function registerAdminUiRoutes(app: FastifyInstance, env: Env) {
     const vec = await embedText(text.slice(0, 4000), env);
     return sendJson(reply, { ok: true, dim: Array.isArray(vec) ? vec.length : 0 });
   });
+
+  app.get('/admin/api/tools/fetch-models', async (request, reply) => {
+    const guard = requireAdmin(request, env);
+    if (guard) return sendJson(reply, guard.body, guard.status);
+
+    const settings = await getEffectiveRuntimeSettings(env);
+    const apiUrl = String(settings.openaiApiUrl || '').trim();
+    const apiKey = String(settings.openaiApiKey || '').trim();
+    if (!apiUrl || !apiKey) {
+      return sendJson(reply, { error: 'missing_api_config', models: [] }, 400);
+    }
+
+    const apiBaseUrl = apiUrl.replace(/\/+$/, '');
+
+    try {
+      if (settings.chatApiFormat === 'gemini') {
+        const url = new URL(`${apiBaseUrl}/v1beta/models`);
+        url.searchParams.set('key', apiKey);
+        const response = await fetch(url.toString(), {
+          headers: {
+            'x-goog-api-key': apiKey,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (!response.ok) {
+          const errorText = await response.text();
+          return sendJson(reply, { error: 'model_fetch_failed', details: errorText, models: [] }, 200);
+        }
+        const payload: any = await response.json();
+        const entries: any[] = Array.isArray(payload?.models) ? payload.models : [];
+        const models = entries.map((item) => {
+          const name = typeof item?.name === 'string' ? item.name.trim() : '';
+          const label = typeof item?.displayName === 'string' ? item.displayName.trim() : '';
+          return { id: name, label: label || name, provider: 'gemini' };
+        }).filter((m) => m.id);
+        return sendJson(reply, { models });
+      }
+
+      if (settings.chatApiFormat === 'anthropic') {
+        return sendJson(reply, { models: [], warning: 'anthropic_no_models_endpoint' });
+      }
+
+      const response = await fetch(`${apiBaseUrl}/v1/models`, {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        return sendJson(reply, { error: 'model_fetch_failed', details: errorText, models: [] }, response.status);
+      }
+      const payload: any = await response.json();
+      const entries: any[] = Array.isArray(payload?.data) ? payload.data : [];
+      const models = entries.filter(item => typeof item?.id === 'string').map(item => ({
+        id: item.id || '',
+        label: item.id || '',
+        provider: item.owned_by || 'unknown'
+      }));
+      return sendJson(reply, { models });
+    } catch (error: any) {
+      return sendJson(reply, { error: 'model_fetch_error', details: String(error?.message || error), models: [] }, 500);
+    }
+  });
 }

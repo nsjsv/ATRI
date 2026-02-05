@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
-import { Env } from '../runtime/types';
+import { Env, CHAT_MODEL } from '../runtime/types';
 import { requireAppToken } from '../utils/auth';
 import { sendJson } from '../utils/reply';
-import { getEffectiveRuntimeSettings } from '../services/runtime-settings';
+import { getEffectiveRuntimeSettings, getStoredRuntimeConfigView } from '../services/runtime-settings';
 
 type ProviderModel = {
   id?: string;
@@ -57,6 +57,35 @@ function fallbackModels(settings: any) {
 }
 
 export function registerModelRoutes(app: FastifyInstance, env: Env) {
+  app.get('/current-model', async (request, reply) => {
+    try {
+      const auth = requireAppToken(request, env);
+      if (auth) return sendJson(reply, auth.body, auth.status);
+
+      const [settings, stored] = await Promise.all([
+        getEffectiveRuntimeSettings(env),
+        getStoredRuntimeConfigView(env)
+      ]);
+
+      const currentModel = settings.defaultChatModel;
+      const storedModel = stored.config.defaultChatModel?.trim();
+
+      let source: 'admin' | 'env' | 'default';
+      if (storedModel && storedModel === currentModel) {
+        source = 'admin';
+      } else if (currentModel === CHAT_MODEL) {
+        source = 'default';
+      } else {
+        source = 'env';
+      }
+
+      return sendJson(reply, { model: currentModel, source });
+    } catch (error: any) {
+      request.log.error({ error }, '[ATRI] 获取当前模型失败');
+      return sendJson(reply, { error: 'fetch_current_model_error', details: String(error?.message || error) }, 500);
+    }
+  });
+
   app.get('/models', async (request, reply) => {
     try {
       const auth = requireAppToken(request, env);

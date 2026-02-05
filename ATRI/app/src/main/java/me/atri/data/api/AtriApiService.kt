@@ -5,6 +5,7 @@ import me.atri.data.api.request.ConversationDeleteRequest
 import me.atri.data.api.request.ConversationLogRequest
 import me.atri.data.api.request.InvalidateMemoryRequest
 import me.atri.data.api.request.DiaryRegenerateRequest
+import me.atri.data.api.response.CurrentModelResponse
 import me.atri.data.api.response.DiaryEntryResponse
 import me.atri.data.api.response.DiaryListResponse
 import me.atri.data.api.response.LastConversationResponse
@@ -71,6 +72,9 @@ interface AtriApiService {
 
     @GET("/models")
     suspend fun fetchModelList(): Response<ModelListResponse>
+
+    @GET("/current-model")
+    suspend fun fetchCurrentModel(): Response<CurrentModelResponse>
 
     @GET("/conversation/pull")
     suspend fun pullConversation(

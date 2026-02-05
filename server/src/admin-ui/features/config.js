@@ -172,4 +172,42 @@ export function initConfigHandlers() {
 
   $('chatApiFormat')?.addEventListener('change', applyUpstreamHints);
   $('diaryApiFormat')?.addEventListener('change', applyUpstreamHints);
+
+  $('fetchModelsBtn')?.addEventListener('click', () => {
+    runBusy($('fetchModelsBtn'), () => fetchModelsForAdmin(), '拉取中...');
+  });
+
+  $('modelSelect')?.addEventListener('change', () => {
+    const selected = $('modelSelect').value;
+    if (selected) {
+      $('defaultChatModel').value = selected;
+    }
+  });
+}
+
+async function fetchModelsForAdmin() {
+  const selectEl = $('modelSelect');
+  try {
+    const data = await api('/admin/api/tools/fetch-models');
+    const models = data?.models || [];
+    selectEl.innerHTML = '<option value="">-- 选择模型 --</option>';
+    if (models.length === 0) {
+      selectEl.innerHTML = '<option value="">无可用模型</option>';
+      if (data?.warning) {
+        setText($('configMsg'), '提示：' + (data.warning === 'anthropic_no_models_endpoint' ? 'Anthropic 不提供模型列表接口，请手动输入' : data.warning));
+      }
+    } else {
+      const currentModel = $('defaultChatModel').value;
+      for (const m of models) {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.label || m.id;
+        if (m.id === currentModel) opt.selected = true;
+        selectEl.appendChild(opt);
+      }
+    }
+    selectEl.style.display = '';
+  } catch (e) {
+    setText($('configMsg'), '拉取模型列表失败：' + String(e?.message || e));
+  }
 }

@@ -371,7 +371,12 @@ class ChatRepository(
     ): ChatRequest {
         val ensuredUserId = userId ?: preferencesStore.ensureUserId()
         val userName = preferencesStore.userName.first()
-        val preferredModel = preferencesStore.modelName.first().takeIf { it.isNotBlank() }
+        val backendType = preferencesStore.backendType.first()
+        val preferredModel = if (backendType == "vps") {
+            null
+        } else {
+            preferencesStore.modelName.first().takeIf { it.isNotBlank() }
+        }
         val requestContent = content
         val compatImage = attachments.firstOrNull { it.type == AttachmentType.IMAGE }?.url
         val resolvedInlineImage = inlineImageDataUrl?.takeIf { it.isNotBlank() }

@@ -72,7 +72,13 @@
             <div class="col">
               <div class="field">
                 <label for="defaultChatModel">默认模型</label>
-                <input id="defaultChatModel" placeholder="gpt-4o" />
+                <div class="input-with-btn">
+                  <input id="defaultChatModel" placeholder="gpt-4o" />
+                  <button id="fetchModelsBtn" type="button" class="btn-small">拉取列表</button>
+                </div>
+                <select id="modelSelect" style="margin-top: 6px; display: none;">
+                  <option value="">-- 选择模型 --</option>
+                </select>
               </div>
             </div>
           </div>
