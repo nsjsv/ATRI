@@ -28,6 +28,7 @@ import {
 
 const SESSION_COOKIE = 'atri_admin_session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const UPDATE_CHECK_TIMEOUT_MS = 15000;
 
 function timingSafeEqual(a: string, b: string): boolean {
   const aBuf = Buffer.from(a);
@@ -291,6 +292,216 @@ function buildUserMemoryVectorIds(userId: string, dates: string[]) {
   return ids;
 }
 
+type GhcrImageRef = {
+  registry: 'ghcr';
+  image: string;
+  host: 'ghcr.io';
+  repo: string;
+  tag: string;
+};
+
+function normalizeSha256Digest(value: unknown): string | null {
+  const text = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!text) return null;
+  const match = text.match(/^sha256:[0-9a-f]{64}$/);
+  return match ? match[0] : null;
+}
+
+function extractSha256Digest(value: unknown): string | null {
+  const text = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!text) return null;
+  const direct = normalizeSha256Digest(text);
+  if (direct) return direct;
+  const found = text.match(/sha256:[0-9a-f]{64}/);
+  return found ? found[0] : null;
+}
+
+function parseGhcrImageRef(imageInput: unknown, tagInput: unknown): GhcrImageRef | null {
+  const rawImage = String(imageInput || '').trim() || 'ghcr.io/mikuscat/atri-server';
+  const rawTag = String(tagInput || '').trim();
+
+  let image = rawImage.replace(/^docker:\/\//i, '');
+  const digestPos = image.indexOf('@');
+  if (digestPos !== -1) {
+    image = image.slice(0, digestPos);
+  }
+
+  const slashPos = image.lastIndexOf('/');
+  const colonPos = image.lastIndexOf(':');
+  const tagFromImage = colonPos > slashPos ? image.slice(colonPos + 1).trim() : '';
+  if (colonPos > slashPos) {
+    image = image.slice(0, colonPos).trim();
+  }
+
+  const firstSlash = image.indexOf('/');
+  if (firstSlash <= 0) return null;
+  const host = image.slice(0, firstSlash).trim().toLowerCase();
+  const repo = image.slice(firstSlash + 1).trim().replace(/^\/+/, '').replace(/\/+$/, '');
+  if (host !== 'ghcr.io' || !repo) return null;
+
+  const tag = (rawTag || tagFromImage || 'latest').trim();
+  if (!tag) return null;
+
+  return {
+    registry: 'ghcr',
+    image: `${host}/${repo}`,
+    host: 'ghcr.io',
+    repo,
+    tag
+  };
+}
+
+function buildGhcrManifestUrl(ref: GhcrImageRef) {
+  return `https://${ref.host}/v2/${ref.repo}/manifests/${encodeURIComponent(ref.tag)}`;
+}
+
+async function fetchGhcrPullToken(ref: GhcrImageRef, timeoutMs: number) {
+  const url = new URL(`https://${ref.host}/token`);
+  url.searchParams.set('service', ref.host);
+  url.searchParams.set('scope', `repository:${ref.repo}:pull`);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url.toString(), { signal: controller.signal });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`token_request_failed:${res.status}:${text.slice(0, 200)}`);
+    }
+    const data: any = await res.json();
+    const token = String(data?.token || data?.access_token || '').trim();
+    if (!token) throw new Error('token_missing');
+    return token;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchGhcrRemoteDigest(ref: GhcrImageRef, timeoutMs: number) {
+  const token = await fetchGhcrPullToken(ref, timeoutMs);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(buildGhcrManifestUrl(ref), {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: [
+          'application/vnd.oci.image.manifest.v1+json',
+          'application/vnd.docker.distribution.manifest.v2+json',
+          'application/vnd.oci.image.index.v1+json',
+          'application/vnd.docker.distribution.manifest.list.v2+json'
+        ].join(', ')
+      },
+      signal: controller.signal
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`manifest_request_failed:${res.status}:${text.slice(0, 300)}`);
+    }
+    const digest = normalizeSha256Digest(res.headers.get('docker-content-digest'));
+    if (!digest) {
+      throw new Error('manifest_digest_missing');
+    }
+    const lastModifiedRaw = String(res.headers.get('last-modified') || '').trim();
+    const parsedAt = lastModifiedRaw ? Date.parse(lastModifiedRaw) : NaN;
+    return {
+      digest,
+      lastModifiedAt: Number.isFinite(parsedAt) ? parsedAt : null
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function readCurrentRuntimeDigest(env: Env) {
+  const sources: Record<string, string | undefined> = {
+    CURRENT_IMAGE_DIGEST: env.CURRENT_IMAGE_DIGEST,
+    ZEABUR_IMAGE_DIGEST: process.env.ZEABUR_IMAGE_DIGEST,
+    IMAGE_DIGEST: process.env.IMAGE_DIGEST,
+    ZEABUR_SERVICE_IMAGE: process.env.ZEABUR_SERVICE_IMAGE,
+    ZEABUR_SERVICE_DOCKER_IMAGE: process.env.ZEABUR_SERVICE_DOCKER_IMAGE,
+    ZEABUR_IMAGE: process.env.ZEABUR_IMAGE
+  };
+  for (const [source, value] of Object.entries(sources)) {
+    const digest = extractSha256Digest(value);
+    if (digest) return { digest, source };
+  }
+  return { digest: null as string | null, source: null as string | null };
+}
+
+async function runImageUpdateCheck(env: Env) {
+  const imageRef = parseGhcrImageRef(env.UPDATE_CHECK_IMAGE, env.UPDATE_CHECK_TAG);
+  if (!imageRef) {
+    return {
+      ok: false,
+      status: 'misconfigured',
+      checkedAt: Date.now(),
+      details: '仅支持 ghcr.io 镜像地址',
+      image: String(env.UPDATE_CHECK_IMAGE || '').trim() || 'ghcr.io/mikuscat/atri-server',
+      tag: String(env.UPDATE_CHECK_TAG || '').trim() || 'latest'
+    };
+  }
+
+  const current = readCurrentRuntimeDigest(env);
+  try {
+    const remote = await fetchGhcrRemoteDigest(imageRef, UPDATE_CHECK_TIMEOUT_MS);
+    const checkedAt = Date.now();
+    if (!current.digest) {
+      return {
+        ok: true,
+        status: 'cannot_compare',
+        checkedAt,
+        image: imageRef.image,
+        tag: imageRef.tag,
+        registry: imageRef.registry,
+        remoteDigest: remote.digest,
+        remoteLastModifiedAt: remote.lastModifiedAt,
+        currentDigest: null,
+        currentDigestSource: null,
+        details: '未发现当前实例的镜像 digest（请注入 CURRENT_IMAGE_DIGEST）'
+      };
+    }
+    if (current.digest === remote.digest) {
+      return {
+        ok: true,
+        status: 'up_to_date',
+        checkedAt,
+        image: imageRef.image,
+        tag: imageRef.tag,
+        registry: imageRef.registry,
+        remoteDigest: remote.digest,
+        remoteLastModifiedAt: remote.lastModifiedAt,
+        currentDigest: current.digest,
+        currentDigestSource: current.source
+      };
+    }
+    return {
+      ok: true,
+      status: 'update_available',
+      checkedAt,
+      image: imageRef.image,
+      tag: imageRef.tag,
+      registry: imageRef.registry,
+      remoteDigest: remote.digest,
+      remoteLastModifiedAt: remote.lastModifiedAt,
+      currentDigest: current.digest,
+      currentDigestSource: current.source
+    };
+  } catch (error: any) {
+    return {
+      ok: false,
+      status: 'check_failed',
+      checkedAt: Date.now(),
+      image: imageRef.image,
+      tag: imageRef.tag,
+      registry: imageRef.registry,
+      currentDigest: current.digest,
+      currentDigestSource: current.source,
+      details: String(error?.message || error).slice(0, 500)
+    };
+  }
+}
+
 async function deleteUserMediaObjects(env: Env, userId: string) {
   const safeUser = sanitizeFileName(userId) || 'anon';
   const userDir = path.join(env.MEDIA_ROOT, 'u', safeUser);
@@ -467,6 +678,14 @@ export function registerAdminUiRoutes(app: FastifyInstance, env: Env) {
     });
   });
 
+  app.get('/admin/api/update-check', async (request, reply) => {
+    const guard = requireAdmin(request, env);
+    if (guard) return sendJson(reply, guard.body, guard.status);
+
+    const result = await runImageUpdateCheck(env);
+    return sendJson(reply, result);
+  });
+
   app.get('/admin/api/config', async (request, reply) => {
     const guard = requireAdmin(request, env);
     if (guard) return sendJson(reply, guard.body, guard.status);
@@ -482,7 +701,6 @@ export function registerAdminUiRoutes(app: FastifyInstance, env: Env) {
       effective: {
         chatApiFormat: effective.chatApiFormat,
         diaryApiFormat: effective.diaryApiFormat,
-        anthropicVersion: effective.anthropicVersion,
         openaiApiUrl: effective.openaiApiUrl,
         embeddingsApiUrl: effective.embeddingsApiUrl,
         embeddingsModel: effective.embeddingsModel,
@@ -791,8 +1009,7 @@ export function registerAdminUiRoutes(app: FastifyInstance, env: Env) {
         ],
         temperature: 0,
         maxTokens: 32,
-        timeoutMs: 12000,
-        anthropicVersion: settings.anthropicVersion
+        timeoutMs: 12000
       });
 
       const content = result.message?.content;

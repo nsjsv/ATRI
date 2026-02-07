@@ -88,7 +88,6 @@ export async function generateDiaryFromConversation(env: Env, params: {
       temperature: settings.diaryTemperature,
       maxTokens: settings.diaryMaxTokens,
       timeoutMs: 120000,
-      anthropicVersion: settings.anthropicVersion,
       trace: { scope: 'diary', userId: params.userId }
     }));
 
@@ -131,7 +130,7 @@ function resolveDiaryModel(settings: { diaryModel?: string; defaultChatModel?: s
   const trimmed = typeof modelKey === 'string' ? modelKey.trim() : '';
   const configured = typeof settings.diaryModel === 'string' ? settings.diaryModel.trim() : '';
   const fallback = typeof settings.defaultChatModel === 'string' ? settings.defaultChatModel.trim() : '';
-  return trimmed || configured || fallback || CHAT_MODEL;
+  return configured || trimmed || fallback || CHAT_MODEL;
 }
 
 function formatDiaryDate(timestamp: number) {

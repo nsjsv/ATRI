@@ -341,10 +341,29 @@ async function openAiMessagesToAnthropic(env: Env, messages: any[]) {
 async function openAiMessagesToGemini(env: Env, messages: any[]) {
   const system = buildSystemText(messages);
   const contents: any[] = [];
+  let pendingToolResponses: any[] = [];
+
+  const flushToolResponses = () => {
+    if (!pendingToolResponses.length) return;
+    contents.push({ role: 'user', parts: pendingToolResponses });
+    pendingToolResponses = [];
+  };
 
   for (const msg of Array.isArray(messages) ? messages : []) {
     if (!msg || typeof msg !== 'object') continue;
     if (msg.role === 'system') continue;
+
+    if (msg.role === 'tool') {
+      const name = typeof msg.name === 'string' ? msg.name.trim() : '';
+      const content = typeof msg.content === 'string' ? msg.content : String(msg.content ?? '');
+      if (!name) continue;
+      pendingToolResponses.push({
+        functionResponse: { name, response: { result: content || '' } }
+      });
+      continue;
+    }
+
+    flushToolResponses();
 
     if (msg.role === 'user') {
       const parts = await openAiContentToGeminiParts(env, msg.content);
@@ -373,18 +392,9 @@ async function openAiMessagesToGemini(env: Env, messages: any[]) {
       contents.push({ role: 'model', parts: parts.length ? parts : [{ text: '' }] });
       continue;
     }
-
-    if (msg.role === 'tool') {
-      const name = typeof msg.name === 'string' ? msg.name.trim() : '';
-      const content = typeof msg.content === 'string' ? msg.content : String(msg.content ?? '');
-      if (!name) continue;
-      contents.push({
-        role: 'user',
-        parts: [{ functionResponse: { name, response: { result: content || '' } } }]
-      });
-      continue;
-    }
   }
+
+  flushToolResponses();
 
   const systemInstruction = system ? { parts: [{ text: system }] } : undefined;
   return { systemInstruction, contents };
@@ -494,7 +504,6 @@ export async function callUpstreamChat(env: Env, params: {
   temperature?: number;
   maxTokens?: number;
   timeoutMs?: number;
-  anthropicVersion?: string;
   trace?: { scope?: string; userId?: string };
 }) {
   const format = normalizeFormat(params.format);

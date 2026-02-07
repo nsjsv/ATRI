@@ -104,6 +104,9 @@ export function loadEnv(source: NodeJS.ProcessEnv): Env {
     ADMIN_ALLOWED_ORIGINS: readOptionalText(source.ADMIN_ALLOWED_ORIGINS),
     ADMIN_CONFIG_ENCRYPTION_KEY: readOptionalText(source.ADMIN_CONFIG_ENCRYPTION_KEY),
     ADMIN_ALLOWED_IPS: readOptionalText(source.ADMIN_ALLOWED_IPS),
+    UPDATE_CHECK_IMAGE: readOptionalText(source.UPDATE_CHECK_IMAGE),
+    UPDATE_CHECK_TAG: readOptionalText(source.UPDATE_CHECK_TAG),
+    CURRENT_IMAGE_DIGEST: readOptionalText(source.CURRENT_IMAGE_DIGEST),
     APP_TOKEN: readOptionalText(source.APP_TOKEN),
     COMPAT_API_KEY: readOptionalText(source.COMPAT_API_KEY)
   };

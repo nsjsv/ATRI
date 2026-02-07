@@ -60,7 +60,6 @@ export async function buildApp(env: Env) {
       'X-App-Token',
       'Authorization',
       'X-API-Key',
-      'Anthropic-Version',
       'X-Goog-Api-Key',
       'X-File-Name',
       'X-File-Type',

@@ -63,7 +63,6 @@ export async function generateUserProfile(env: Env, params: {
       temperature: settings.profileTemperature,
       maxTokens: 1024,
       timeoutMs: 90000,
-      anthropicVersion: settings.anthropicVersion,
       trace: { scope: 'profile', userId: params.userId }
     });
 
@@ -91,7 +90,7 @@ function resolveProfileModel(settings: { diaryModel?: string; defaultChatModel?:
   const trimmed = typeof modelKey === 'string' ? modelKey.trim() : '';
   const configured = typeof settings.diaryModel === 'string' ? settings.diaryModel.trim() : '';
   const fallback = typeof settings.defaultChatModel === 'string' ? settings.defaultChatModel.trim() : '';
-  return trimmed || configured || fallback || CHAT_MODEL;
+  return configured || trimmed || fallback || CHAT_MODEL;
 }
 
 function parseProfileJson(raw: string): any {

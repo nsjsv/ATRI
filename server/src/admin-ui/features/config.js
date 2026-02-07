@@ -58,10 +58,6 @@ function applyUpstreamHints() {
         ? 'gemini-1.5-pro'
         : 'gpt-4o-mini';
   $('diaryModel').placeholder = diaryModelHint;
-
-  const needsAnthropic = chat === 'anthropic' || diary === 'anthropic';
-  const anthropicCol = $('anthropicVersion')?.closest('.col');
-  if (anthropicCol) anthropicCol.hidden = !needsAnthropic;
 }
 
 export async function loadConfig() {
@@ -76,7 +72,6 @@ export async function loadConfig() {
   );
 
   $('chatApiFormat').value = c.chatApiFormat || data.effective?.chatApiFormat || 'openai';
-  $('anthropicVersion').value = c.anthropicVersion || data.effective?.anthropicVersion || '';
 
   $('openaiApiUrl').value = c.openaiApiUrl || data.effective?.openaiApiUrl || '';
   $('defaultChatModel').value = c.defaultChatModel || data.effective?.defaultChatModel || '';
@@ -106,14 +101,10 @@ export async function loadConfig() {
 }
 
 function buildSavePayload() {
-  const { chat, diary } = getEffectiveDiaryFormat();
-  const needsAnthropic = chat === 'anthropic' || diary === 'anthropic';
-
   const config = {
     chatApiFormat: $('chatApiFormat').value,
     openaiApiUrl: $('openaiApiUrl').value,
     defaultChatModel: $('defaultChatModel').value,
-    anthropicVersion: needsAnthropic ? $('anthropicVersion').value : '',
     embeddingsApiUrl: $('embeddingsApiUrl').value,
     embeddingsModel: $('embeddingsModel').value,
     diaryApiFormat: $('diaryApiFormat').value,

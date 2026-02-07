@@ -26,6 +26,9 @@ export interface Env {
   ADMIN_ALLOWED_ORIGINS?: string;
   ADMIN_CONFIG_ENCRYPTION_KEY?: string;
   ADMIN_ALLOWED_IPS?: string;
+  UPDATE_CHECK_IMAGE?: string;
+  UPDATE_CHECK_TAG?: string;
+  CURRENT_IMAGE_DIGEST?: string;
   APP_TOKEN?: string;
   COMPAT_API_KEY?: string;
 }

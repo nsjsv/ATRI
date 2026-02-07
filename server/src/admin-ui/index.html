@@ -83,26 +83,19 @@
             </div>
           </div>
 
-          <div class="row">
-            <div class="col">
-              <div class="field">
-                <label for="openaiApiKey">API Key</label>
-                <input id="openaiApiKey" type="password" placeholder="留空则保持不变" autocomplete="off" />
-                <div class="field-hint">
-                  <input id="clearOpenaiApiKey" type="checkbox" />
-                  <span>清空已保存</span>
-                  <span id="openaiKeyFlag" class="tag"></span>
-                </div>
-              </div>
-            </div>
-            <div class="col">
-              <div class="field">
-                <label for="anthropicVersion">Anthropic-Version</label>
-                <input id="anthropicVersion" placeholder="2023-06-01" />
-                <div class="muted small mt-6">仅 Anthropic 格式需要</div>
-              </div>
-            </div>
-          </div>
+	          <div class="row">
+	            <div class="col">
+	              <div class="field">
+	                <label for="openaiApiKey">API Key</label>
+	                <input id="openaiApiKey" type="password" placeholder="留空则保持不变" autocomplete="off" />
+	                <div class="field-hint">
+	                  <input id="clearOpenaiApiKey" type="checkbox" />
+	                  <span>清空已保存</span>
+	                  <span id="openaiKeyFlag" class="tag"></span>
+	                </div>
+	              </div>
+	            </div>
+	          </div>
 
           <div class="divider"></div>
           <div class="section-title">联网搜索</div>
@@ -282,11 +275,14 @@
           <div class="divider"></div>
           <div class="section-title">自动更新</div>
           <div class="muted small">
-            绑定 GitHub 后，Zeabur 会在 push 时自动构建发布。
+            检查镜像仓库 `latest` 是否有新 digest，可用于提醒你在 Zeabur 手动更新镜像部署。
           </div>
           <div id="overviewBuildInfo" class="muted small mt-10"></div>
+          <div id="overviewUpdateStatus" class="muted small mt-10">尚未检查</div>
+          <div id="overviewUpdateMeta" class="muted small mt-6"></div>
 
           <div class="inline mt-12">
+            <button id="checkUpdateBtn" class="secondary" type="button">检查更新</button>
             <button id="refreshOverviewBtn" class="secondary" type="button">刷新</button>
           </div>
         </div>

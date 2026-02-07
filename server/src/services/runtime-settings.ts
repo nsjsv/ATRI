@@ -11,7 +11,6 @@ type RuntimeConfigPublic = {
   diaryApiFormat?: string;
   diaryModel?: string;
   defaultChatModel?: string;
-  anthropicVersion?: string;
 
   agentTemperature?: number;
   agentMaxTokens?: number;
@@ -31,7 +30,6 @@ export type EffectiveRuntimeSettings = {
   updatedAt: number | null;
   chatApiFormat: 'openai' | 'anthropic' | 'gemini';
   diaryApiFormat: 'openai' | 'anthropic' | 'gemini';
-  anthropicVersion: string;
   openaiApiUrl: string;
   openaiApiKey: string;
   embeddingsApiUrl: string;
@@ -93,6 +91,22 @@ const DEFAULTS = {
   profileTemperature: 0.2
 };
 
+const RUNTIME_CONFIG_KEYS: Array<keyof RuntimeConfigPublic> = [
+  'chatApiFormat',
+  'openaiApiUrl',
+  'embeddingsApiUrl',
+  'embeddingsModel',
+  'diaryApiUrl',
+  'diaryApiFormat',
+  'diaryModel',
+  'defaultChatModel',
+  'agentTemperature',
+  'agentMaxTokens',
+  'diaryTemperature',
+  'diaryMaxTokens',
+  'profileTemperature'
+];
+
 function normalizeApiFormat(value: unknown): 'openai' | 'anthropic' | 'gemini' | null {
   const text = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (!text) return null;
@@ -126,6 +140,17 @@ function safeJsonParse(text: string): any {
   } catch {
     return null;
   }
+}
+
+function sanitizeRuntimeConfig(input: unknown): RuntimeConfigPublic {
+  const raw = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  const out: RuntimeConfigPublic = {};
+  for (const key of RUNTIME_CONFIG_KEYS) {
+    if (key in raw) {
+      (out as any)[key] = raw[key];
+    }
+  }
+  return out;
 }
 
 function deriveAes256Key(secret: string): Buffer | null {
@@ -223,7 +248,7 @@ async function loadStoredConfig(env: Env) {
   );
   const row = result.rows?.[0];
   const configJson = typeof row?.config_json === 'string' ? row.config_json : '{}';
-  const config = (safeJsonParse(configJson) ?? {}) as RuntimeConfigPublic;
+  const config = sanitizeRuntimeConfig(safeJsonParse(configJson) ?? {});
   const updatedAt = row?.updated_at ? Number(row.updated_at) : null;
 
   const secretsCipher = typeof row?.secrets_ciphertext === 'string' ? row.secrets_ciphertext : '';
@@ -283,7 +308,6 @@ function resolveEffectiveSettings(
 
   const chatApiFormat = normalizeApiFormat(c.chatApiFormat) ?? 'openai';
   const diaryApiFormat = normalizeApiFormat(c.diaryApiFormat) ?? chatApiFormat;
-  const anthropicVersion = normalizeOptionalText(c.anthropicVersion) ?? '2023-06-01';
 
   const openaiApiUrl = String(c.openaiApiUrl ?? env.OPENAI_API_URL ?? '').trim();
   const openaiApiKey = String(s.openaiApiKey ?? env.OPENAI_API_KEY ?? '').trim();
@@ -330,7 +354,6 @@ function resolveEffectiveSettings(
     updatedAt: stored.updatedAt,
     chatApiFormat,
     diaryApiFormat,
-    anthropicVersion,
     openaiApiUrl,
     openaiApiKey,
     embeddingsApiUrl,
@@ -486,24 +509,7 @@ export async function updateRuntimeConfig(
   const incomingConfig = update.config && typeof update.config === 'object' ? update.config : {};
   const mergedConfig: RuntimeConfigPublic = { ...existingConfig };
 
-  const configKeys: Array<keyof RuntimeConfigPublic> = [
-    'chatApiFormat',
-    'openaiApiUrl',
-    'embeddingsApiUrl',
-    'embeddingsModel',
-    'diaryApiUrl',
-    'diaryApiFormat',
-    'diaryModel',
-    'defaultChatModel',
-    'anthropicVersion',
-    'agentTemperature',
-    'agentMaxTokens',
-    'diaryTemperature',
-    'diaryMaxTokens',
-    'profileTemperature'
-  ];
-
-  for (const keyName of configKeys) {
+  for (const keyName of RUNTIME_CONFIG_KEYS) {
     if (!(keyName in incomingConfig)) continue;
     const raw = (incomingConfig as any)[keyName];
     if (raw === null) {

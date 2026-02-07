@@ -155,16 +155,15 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     platform: params.platform,
     clientTimeIso: params.clientTimeIso,
     userProfileSnippet,
-	    selfReviewSnippet,
-	    firstConversationAt: firstConversationAt ?? undefined,
-	    agentSystemTemplate,
-	    apiFormat: settings.chatApiFormat,
-	    anthropicVersion: settings.anthropicVersion,
-	    openaiApiUrl: settings.openaiApiUrl,
-	    openaiApiKey: settings.openaiApiKey,
-	    temperature: settings.agentTemperature,
-	    maxTokens: settings.agentMaxTokens
-	  });
+    selfReviewSnippet,
+    firstConversationAt: firstConversationAt ?? undefined,
+    agentSystemTemplate,
+    apiFormat: settings.chatApiFormat,
+    openaiApiUrl: settings.openaiApiUrl,
+    openaiApiKey: settings.openaiApiKey,
+    temperature: settings.agentTemperature,
+    maxTokens: settings.agentMaxTokens
+  });
 
   const finalState = {
     ...state,
@@ -461,7 +460,6 @@ async function runToolLoop(env: Env, params: {
   firstConversationAt?: number;
   agentSystemTemplate: string;
   apiFormat: 'openai' | 'anthropic' | 'gemini';
-  anthropicVersion: string;
   openaiApiUrl: string;
   openaiApiKey: string;
   temperature: number;
@@ -482,7 +480,6 @@ async function runToolLoop(env: Env, params: {
         temperature: params.temperature,
         maxTokens: params.maxTokens,
         timeoutMs: 120000,
-        anthropicVersion: params.anthropicVersion,
         trace: { scope: 'agent', userId: params.userId }
       });
       message = result.message;
