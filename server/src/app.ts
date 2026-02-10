@@ -52,6 +52,11 @@ export async function buildApp(env: Env) {
     return payload;
   });
 
+  // 允许二进制上传（image/*, application/octet-stream 等）
+  app.addContentTypeParser(/^(?!application\/json)/, { parseAs: 'buffer' }, (_req, body, done) => {
+    done(null, body);
+  });
+
   await app.register(cors, {
     origin: '*',
     methods: ['GET', 'POST', 'OPTIONS', 'HEAD'],
