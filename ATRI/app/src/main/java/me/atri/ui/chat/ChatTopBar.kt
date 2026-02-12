@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import me.atri.data.model.AtriStatus
 import me.atri.ui.components.DiaryIcon
+import me.atri.ui.theme.AtriTheme
 
 @Composable
 fun ChatTopBar(
@@ -87,16 +88,17 @@ fun ChatTopBar(
 @Composable
 private fun StatusPill(status: AtriStatus) {
     val colorScheme = MaterialTheme.colorScheme
+    val atriColors = AtriTheme.colors
 
     val pillColor = when (status) {
-        is AtriStatus.LiveStatus -> parseDynamicColor(status.pillColor, colorScheme.outline)
-        is AtriStatus.Thinking -> colorScheme.primary
+        is AtriStatus.LiveStatus -> parseDynamicColor(status.pillColor, atriColors.messageBubbleAtri)
+        is AtriStatus.Thinking -> atriColors.messageBubbleAtri
     }
     val textColor = contrastTextColor(pillColor)
 
     Surface(
         shape = RoundedCornerShape(50),
-        color = pillColor.copy(alpha = 0.38f),
+        color = pillColor,
         tonalElevation = 0.dp
     ) {
         Row(
@@ -111,7 +113,7 @@ private fun StatusPill(status: AtriStatus) {
                     .height(8.dp)
                     .width(8.dp),
                 shape = CircleShape,
-                color = pillColor.copy(alpha = 0.95f),
+                color = pillColor,
                 tonalElevation = 0.dp
             ) {}
             AnimatedContent(

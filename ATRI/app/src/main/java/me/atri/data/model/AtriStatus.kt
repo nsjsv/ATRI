@@ -22,11 +22,11 @@ sealed class AtriStatus(open val text: String) {
 
         fun fromStatus(status: me.atri.data.api.response.BioChatResponse.Status?): AtriStatus {
             val label = status?.label?.takeIf { it.isNotBlank() } ?: "陪着你"
-            val pillColor = status?.pillColor?.takeIf { it.isNotBlank() } ?: "#7E8EA3"
+            val pillColor = status?.pillColor?.takeIf { it.isNotBlank() } ?: "#E3F2FD"
             val textColor = status?.textColor?.takeIf { it.isNotBlank() } ?: "#FFFFFF"
             return LiveStatus(label = label, pillColor = pillColor, textColor = textColor)
         }
 
-        fun idle(): AtriStatus = LiveStatus("等你~", "#7E8EA3", "#FFFFFF")
+        fun idle(): AtriStatus = LiveStatus("等你~", "#E3F2FD", "#FFFFFF")
     }
 }

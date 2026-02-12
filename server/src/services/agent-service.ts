@@ -310,7 +310,7 @@ function composeAgentSystemPrompt(params: {
   selfReviewSnippet?: string;
 }) {
   const statusLabel = String(params.statusLabel || '陪着你').trim() || '陪着你';
-  const statusPillColor = String(params.statusPillColor || '#7E8EA3').trim() || '#7E8EA3';
+  const statusPillColor = String(params.statusPillColor || '#E3F2FD').trim() || '#E3F2FD';
   const statusTextColor = String(params.statusTextColor || '#FFFFFF').trim() || '#FFFFFF';
   const statusReason = String(params.statusReason || '').trim();
   const template = String(params.template || '');
