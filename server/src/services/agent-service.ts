@@ -625,9 +625,8 @@ async function executeAgentTool(
       reason: args.reason,
       currentState: state
     });
-    const reasonText = args.reason ? `\n内心：${args.reason}` : '';
     return {
-      output: `状态已更新：${updated.statusLabel}｜底色 ${updated.statusPillColor}｜文字 ${updated.statusTextColor}${reasonText}`,
+      output: `状态已更新：${updated.statusLabel}`,
       updatedState: updated
     };
   }
@@ -639,9 +638,8 @@ async function executeAgentTool(
       reason: args.reason,
       currentState: state
     });
-    const reasonText = args.reason ? `\n内心：${args.reason}` : '';
     return {
-      output: `关系温度变化：${updated.intimacy}${reasonText}`,
+      output: `关系温度变化：${updated.intimacy}`,
       updatedState: updated
     };
   }

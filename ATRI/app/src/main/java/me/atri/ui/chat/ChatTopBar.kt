@@ -90,7 +90,7 @@ private fun StatusPill(status: AtriStatus) {
 
     val pillColor = when (status) {
         is AtriStatus.LiveStatus -> parseDynamicColor(status.pillColor, colorScheme.outline)
-        is AtriStatus.Thinking -> Color(0xFF5B8DEF)
+        is AtriStatus.Thinking -> colorScheme.primary
     }
     val textColor = contrastTextColor(pillColor)
 
