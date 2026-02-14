@@ -69,6 +69,8 @@ class ChatViewModel(
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
     private var currentSendJob: Job? = null
     private var pendingUserMessageId: String? = null
+    private var backgroundSyncJob: Job? = null
+    private var lastBackgroundSyncAt: Long = 0L
 
     data class WelcomeUiState(
         val greeting: String = "",
@@ -136,8 +138,20 @@ class ChatViewModel(
     }
 
     private fun syncRemoteHistoryOnStart() {
-        viewModelScope.launch {
-            runCatching {
+        triggerBackgroundSync(force = true)
+    }
+
+    fun syncRemoteHistoryOnForeground() {
+        triggerBackgroundSync(force = false)
+    }
+
+    private fun triggerBackgroundSync(force: Boolean) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastBackgroundSyncAt < 15_000) return
+        if (backgroundSyncJob?.isActive == true) return
+        lastBackgroundSyncAt = now
+        backgroundSyncJob = viewModelScope.launch {
+            try {
                 val result = chatRepository.syncRemoteHistory()
                 result.onSuccess { syncResult ->
                     if (syncResult.insertedCount > 0 || syncResult.deletedCount > 0) {
@@ -146,6 +160,8 @@ class ChatViewModel(
                 }.onFailure { error ->
                     println("[ATRI] 同步失败: ${error.message}")
                 }
+            } finally {
+                backgroundSyncJob = null
             }
         }
     }
@@ -331,6 +347,9 @@ class ChatViewModel(
             } catch (cancel: CancellationException) {
                 updateState { it.copy(isLoading = false, currentStatus = AtriStatus.idle()) }
                 throw cancel
+            } catch (e: Exception) {
+                val hint = e.message?.takeIf { it.isNotBlank() } ?: "未知错误"
+                updateState { it.copy(error = "重新生成失败: $hint", currentStatus = AtriStatus.idle()) }
             } finally {
                 updateState { it.copy(isLoading = false) }
                 if (isActive) refreshWelcomeState()
@@ -390,6 +409,9 @@ class ChatViewModel(
             } catch (cancel: CancellationException) {
                 updateState { it.copy(isLoading = false, currentStatus = AtriStatus.idle()) }
                 throw cancel
+            } catch (e: Exception) {
+                val hint = e.message?.takeIf { it.isNotBlank() } ?: "未知错误"
+                updateState { it.copy(error = "重新生成失败: $hint", currentStatus = AtriStatus.idle()) }
             } finally {
                 updateState { it.copy(isLoading = false) }
                 if (isActive) refreshWelcomeState()

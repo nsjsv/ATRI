@@ -32,6 +32,22 @@ function getEffectiveDiaryFormat() {
   return { chat, diary };
 }
 
+function parseOptionalInt(raw, fallback = null) {
+  const text = String(raw ?? '').trim();
+  if (!text) return fallback;
+  const n = Number(text);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.trunc(n);
+}
+
+function validateProactiveConfig(config) {
+  const channel = String(config.proactiveNotificationChannel || 'none').trim().toLowerCase();
+  const target = String(config.proactiveNotificationTarget || '').trim();
+  if ((channel === 'email' || channel === 'wechat_work') && !target) {
+    throw new Error('主动消息通知渠道为 email 或企业微信时，通知目标不能为空');
+  }
+}
+
 function applyUpstreamHints() {
   const { chat, diary } = getEffectiveDiaryFormat();
 
@@ -88,6 +104,17 @@ export async function loadConfig() {
   $('diaryTemperature').value = c.diaryTemperature ?? data.effective?.diaryTemperature ?? '';
   $('diaryMaxTokens').value = c.diaryMaxTokens ?? data.effective?.diaryMaxTokens ?? '';
   $('profileTemperature').value = c.profileTemperature ?? data.effective?.profileTemperature ?? '';
+  $('proactiveEnabled').value = String(c.proactiveEnabled ?? data.effective?.proactiveEnabled ?? false);
+  $('proactiveIntervalMinutes').value = c.proactiveIntervalMinutes ?? data.effective?.proactiveIntervalMinutes ?? '';
+  $('proactiveTimeZone').value = c.proactiveTimeZone || data.effective?.proactiveTimeZone || 'Asia/Shanghai';
+  $('proactiveQuietStartHour').value = c.proactiveQuietStartHour ?? data.effective?.proactiveQuietStartHour ?? '';
+  $('proactiveQuietEndHour').value = c.proactiveQuietEndHour ?? data.effective?.proactiveQuietEndHour ?? '';
+  $('proactiveMaxDaily').value = c.proactiveMaxDaily ?? data.effective?.proactiveMaxDaily ?? '';
+  $('proactiveCooldownHours').value = c.proactiveCooldownHours ?? data.effective?.proactiveCooldownHours ?? '';
+  $('proactiveIntimacyThreshold').value = c.proactiveIntimacyThreshold ?? data.effective?.proactiveIntimacyThreshold ?? '';
+  $('proactiveRecentActiveMinutes').value = c.proactiveRecentActiveMinutes ?? data.effective?.proactiveRecentActiveMinutes ?? '';
+  $('proactiveNotificationChannel').value = c.proactiveNotificationChannel || data.effective?.proactiveNotificationChannel || 'none';
+  $('proactiveNotificationTarget').value = c.proactiveNotificationTarget || data.effective?.proactiveNotificationTarget || '';
 
   const flags = data.stored?.secrets || {};
   setTagState($('openaiKeyFlag'), flags.openaiApiKey);
@@ -114,8 +141,21 @@ function buildSavePayload() {
     agentMaxTokens: $('agentMaxTokens').value,
     diaryTemperature: $('diaryTemperature').value,
     diaryMaxTokens: $('diaryMaxTokens').value,
-    profileTemperature: $('profileTemperature').value
+    profileTemperature: $('profileTemperature').value,
+    proactiveEnabled: $('proactiveEnabled').value === 'true',
+    proactiveIntervalMinutes: parseOptionalInt($('proactiveIntervalMinutes').value, ''),
+    proactiveTimeZone: $('proactiveTimeZone').value,
+    proactiveQuietStartHour: parseOptionalInt($('proactiveQuietStartHour').value, ''),
+    proactiveQuietEndHour: parseOptionalInt($('proactiveQuietEndHour').value, ''),
+    proactiveMaxDaily: parseOptionalInt($('proactiveMaxDaily').value, ''),
+    proactiveCooldownHours: parseOptionalInt($('proactiveCooldownHours').value, ''),
+    proactiveIntimacyThreshold: parseOptionalInt($('proactiveIntimacyThreshold').value, ''),
+    proactiveRecentActiveMinutes: parseOptionalInt($('proactiveRecentActiveMinutes').value, ''),
+    proactiveNotificationChannel: $('proactiveNotificationChannel').value,
+    proactiveNotificationTarget: $('proactiveNotificationTarget').value
   };
+
+  validateProactiveConfig(config);
 
   const secrets = {};
 

@@ -147,6 +147,40 @@ async function runSchemaBootstrap(env: Env) {
     `CREATE INDEX IF NOT EXISTS idx_memory_user_date
       ON memory_vectors(user_id, date)`
   );
+
+  await env.db.query(
+    `CREATE TABLE IF NOT EXISTS proactive_messages (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      trigger_context TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      notification_channel TEXT,
+      notification_sent BOOLEAN NOT NULL DEFAULT FALSE,
+      notification_error TEXT,
+      created_at BIGINT NOT NULL,
+      delivered_at BIGINT,
+      expires_at BIGINT NOT NULL
+    )`
+  );
+  await env.db.query(
+    `CREATE INDEX IF NOT EXISTS idx_proactive_messages_user_created
+      ON proactive_messages(user_id, created_at DESC)`
+  );
+  await env.db.query(
+    `CREATE INDEX IF NOT EXISTS idx_proactive_messages_status_created
+      ON proactive_messages(status, created_at DESC)`
+  );
+
+  await env.db.query(
+    `CREATE TABLE IF NOT EXISTS proactive_user_state (
+      user_id TEXT PRIMARY KEY,
+      last_proactive_at BIGINT NOT NULL DEFAULT 0,
+      daily_count INTEGER NOT NULL DEFAULT 0,
+      daily_count_date TEXT,
+      updated_at BIGINT NOT NULL
+    )`
+  );
 }
 
 export async function bootstrapDatabase(env: Env, options?: { maxWaitMs?: number }) {

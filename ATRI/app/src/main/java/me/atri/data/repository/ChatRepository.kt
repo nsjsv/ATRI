@@ -42,7 +42,7 @@ import me.atri.data.api.response.ConversationLogItem
 
 data class ChatResult(
     val reply: String,
-    val mood: BioChatResponse.Mood?,
+    val status: BioChatResponse.Status?,
     val intimacy: Int,
     val replyLogId: String?,
     val replyTimestamp: Long?
@@ -153,23 +153,27 @@ class ChatRepository(
 
             val chatResult = executeChatRequest(request)
             Result.success(chatResult)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    suspend fun persistAtriMessage(finalMessage: MessageEntity, mood: BioChatResponse.Mood? = null) = withContext(Dispatchers.IO) {
+    suspend fun persistAtriMessage(finalMessage: MessageEntity, status: BioChatResponse.Status? = null) = withContext(Dispatchers.IO) {
         val cleanedContent = cleanTimestampPrefix(finalMessage.content)
-        // 将 PAD 状态转换为 JSON 字符串存储
-        val moodJson = if (mood != null) {
-            """{"p":${mood.p},"a":${mood.a},"d":${mood.d}}"""
+        val statusJson = if (status != null) {
+            val label = status.label?.replace("\"", "") ?: ""
+            val pillColor = status.pillColor?.replace("\"", "") ?: ""
+            val textColor = status.textColor?.replace("\"", "") ?: ""
+            """{"label":"$label","pillColor":"$pillColor","textColor":"$textColor"}"""
         } else {
             null
         }
         val sanitized = finalMessage.copy(
             content = cleanedContent,
             attachments = finalMessage.attachments,
-            mood = moodJson
+            mood = statusJson
         )
         val existing = messageDao.getMessageById(sanitized.id)
 
@@ -181,7 +185,7 @@ class ChatRepository(
                 message = existing,
                 newContent = sanitized.content,
                 newAttachments = sanitized.attachments,
-                mood = moodJson
+                mood = statusJson
             )
         }
 
@@ -411,7 +415,7 @@ class ChatRepository(
         }
         return ChatResult(
             reply = reply,
-            mood = body?.mood,
+            status = body?.status,
             intimacy = body?.intimacy ?: 0,
             replyLogId = body?.replyLogId?.takeIf { it.isNotBlank() },
             replyTimestamp = body?.replyTimestamp?.takeIf { it > 0 }

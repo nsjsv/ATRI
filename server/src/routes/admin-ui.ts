@@ -875,7 +875,18 @@ export function registerAdminUiRoutes(app: FastifyInstance, env: Env) {
         agentMaxTokens: effective.agentMaxTokens,
         diaryTemperature: effective.diaryTemperature,
         diaryMaxTokens: effective.diaryMaxTokens,
-        profileTemperature: effective.profileTemperature
+        profileTemperature: effective.profileTemperature,
+        proactiveEnabled: effective.proactiveEnabled,
+        proactiveIntervalMinutes: effective.proactiveIntervalMinutes,
+        proactiveTimeZone: effective.proactiveTimeZone,
+        proactiveQuietStartHour: effective.proactiveQuietStartHour,
+        proactiveQuietEndHour: effective.proactiveQuietEndHour,
+        proactiveMaxDaily: effective.proactiveMaxDaily,
+        proactiveCooldownHours: effective.proactiveCooldownHours,
+        proactiveIntimacyThreshold: effective.proactiveIntimacyThreshold,
+        proactiveRecentActiveMinutes: effective.proactiveRecentActiveMinutes,
+        proactiveNotificationChannel: effective.proactiveNotificationChannel,
+        proactiveNotificationTarget: effective.proactiveNotificationTarget
       }
     });
   });

@@ -68,8 +68,41 @@ export type UserStateRecord = {
   updatedAt: number;
 };
 
+export type ProactiveMessageStatus = 'pending' | 'delivered' | 'expired';
+
+export type ProactiveMessageRecord = {
+  id: string;
+  userId: string;
+  content: string;
+  triggerContext: string | null;
+  status: ProactiveMessageStatus;
+  notificationChannel: 'email' | 'wechat_work' | 'none' | null;
+  notificationSent: boolean;
+  notificationError: string | null;
+  createdAt: number;
+  deliveredAt: number | null;
+  expiresAt: number;
+};
+
+export type ProactiveUserStateRecord = {
+  userId: string;
+  lastProactiveAt: number;
+  dailyCount: number;
+  dailyCountDate: string | null;
+  updatedAt: number;
+};
+
+export type ProactiveCandidateUser = {
+  userId: string;
+  lastInteractionAt: number;
+  userName?: string;
+  timeZone?: string;
+};
+
 let conversationTablesEnsured = false;
 let ensuringConversationTables: Promise<void> | null = null;
+let proactiveTablesEnsured = false;
+let ensuringProactiveTables: Promise<void> | null = null;
 
 async function ensureConversationTables(env: Env) {
   if (conversationTablesEnsured) return;
@@ -101,6 +134,53 @@ async function ensureConversationTables(env: Env) {
   });
 
   return ensuringConversationTables;
+}
+
+async function ensureProactiveTables(env: Env) {
+  if (proactiveTablesEnsured) return;
+  if (ensuringProactiveTables) return ensuringProactiveTables;
+
+  ensuringProactiveTables = (async () => {
+    await env.db.query(
+      `CREATE TABLE IF NOT EXISTS proactive_messages (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        trigger_context TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        notification_channel TEXT,
+        notification_sent BOOLEAN NOT NULL DEFAULT FALSE,
+        notification_error TEXT,
+        created_at BIGINT NOT NULL,
+        delivered_at BIGINT,
+        expires_at BIGINT NOT NULL
+      )`
+    );
+    await env.db.query(
+      `CREATE INDEX IF NOT EXISTS idx_proactive_messages_user_created
+        ON proactive_messages(user_id, created_at DESC)`
+    );
+    await env.db.query(
+      `CREATE INDEX IF NOT EXISTS idx_proactive_messages_status_created
+        ON proactive_messages(status, created_at DESC)`
+    );
+
+    await env.db.query(
+      `CREATE TABLE IF NOT EXISTS proactive_user_state (
+        user_id TEXT PRIMARY KEY,
+        last_proactive_at BIGINT NOT NULL DEFAULT 0,
+        daily_count INTEGER NOT NULL DEFAULT 0,
+        daily_count_date TEXT,
+        updated_at BIGINT NOT NULL
+      )`
+    );
+
+    proactiveTablesEnsured = true;
+  })().finally(() => {
+    ensuringProactiveTables = null;
+  });
+
+  return ensuringProactiveTables;
 }
 
 export async function saveConversationLog(env: Env, payload: ConversationLogInput) {
@@ -741,6 +821,287 @@ export async function updateIntimacyState(env: Env, params: {
   return next;
 }
 
+export async function listProactiveCandidateUsers(env: Env, params?: {
+  lookbackHours?: number;
+  limit?: number;
+}): Promise<ProactiveCandidateUser[]> {
+  await ensureProactiveTables(env);
+
+  const lookbackHoursRaw = typeof params?.lookbackHours === 'number' ? params.lookbackHours : 24 * 30;
+  const lookbackHours = Math.min(Math.max(Math.trunc(lookbackHoursRaw), 1), 24 * 365);
+  const limitRaw = typeof params?.limit === 'number' ? params.limit : 300;
+  const limit = Math.min(Math.max(Math.trunc(limitRaw), 1), 2000);
+  const afterTs = Date.now() - lookbackHours * 3600000;
+
+  const result = await env.db.query(
+    `SELECT states.user_id as "userId",
+            states.last_interaction_at as "lastInteractionAt",
+            MAX(logs.user_name) as "userName",
+            MAX(logs.time_zone) as "timeZone"
+       FROM user_states states
+       LEFT JOIN conversation_logs logs
+         ON logs.user_id = states.user_id
+      WHERE states.last_interaction_at >= $1
+      GROUP BY states.user_id, states.last_interaction_at
+      ORDER BY states.last_interaction_at DESC
+      LIMIT $2`,
+    [afterTs, limit]
+  );
+
+  return (result.rows || [])
+    .map((row: any) => ({
+      userId: String(row?.userId || '').trim(),
+      lastInteractionAt: Number(row?.lastInteractionAt || 0),
+      userName: typeof row?.userName === 'string' ? row.userName : undefined,
+      timeZone: typeof row?.timeZone === 'string' ? row.timeZone : undefined
+    }))
+    .filter((row: ProactiveCandidateUser) => Boolean(row.userId) && Number.isFinite(row.lastInteractionAt));
+}
+
+export async function getProactiveUserState(env: Env, userId: string): Promise<ProactiveUserStateRecord> {
+  await ensureProactiveTables(env);
+  const trimmed = String(userId || '').trim();
+  const now = Date.now();
+  if (!trimmed) {
+    return {
+      userId: '',
+      lastProactiveAt: 0,
+      dailyCount: 0,
+      dailyCountDate: null,
+      updatedAt: now
+    };
+  }
+
+  const result = await env.db.query(
+    `SELECT user_id as "userId",
+            last_proactive_at as "lastProactiveAt",
+            daily_count as "dailyCount",
+            daily_count_date as "dailyCountDate",
+            updated_at as "updatedAt"
+       FROM proactive_user_state
+      WHERE user_id = $1
+      LIMIT 1`,
+    [trimmed]
+  );
+  const row = result.rows?.[0] as any;
+  if (!row) {
+    return {
+      userId: trimmed,
+      lastProactiveAt: 0,
+      dailyCount: 0,
+      dailyCountDate: null,
+      updatedAt: now
+    };
+  }
+  return {
+    userId: String(row.userId || trimmed),
+    lastProactiveAt: Number.isFinite(Number(row.lastProactiveAt)) ? Number(row.lastProactiveAt) : 0,
+    dailyCount: Number.isFinite(Number(row.dailyCount)) ? Math.max(0, Math.trunc(Number(row.dailyCount))) : 0,
+    dailyCountDate: typeof row.dailyCountDate === 'string' ? row.dailyCountDate : null,
+    updatedAt: Number.isFinite(Number(row.updatedAt)) ? Number(row.updatedAt) : now
+  };
+}
+
+export async function saveProactiveUserState(env: Env, state: ProactiveUserStateRecord) {
+  await ensureProactiveTables(env);
+  const payload: ProactiveUserStateRecord = {
+    userId: String(state.userId || '').trim(),
+    lastProactiveAt: Number.isFinite(Number(state.lastProactiveAt)) ? Number(state.lastProactiveAt) : 0,
+    dailyCount: Number.isFinite(Number(state.dailyCount)) ? Math.max(0, Math.trunc(Number(state.dailyCount))) : 0,
+    dailyCountDate: typeof state.dailyCountDate === 'string' ? state.dailyCountDate : null,
+    updatedAt: Number.isFinite(Number(state.updatedAt)) ? Number(state.updatedAt) : Date.now()
+  };
+  if (!payload.userId) return;
+
+  await env.db.query(
+    `INSERT INTO proactive_user_state (user_id, last_proactive_at, daily_count, daily_count_date, updated_at)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (user_id) DO UPDATE SET
+       last_proactive_at = EXCLUDED.last_proactive_at,
+       daily_count = EXCLUDED.daily_count,
+       daily_count_date = EXCLUDED.daily_count_date,
+       updated_at = EXCLUDED.updated_at`,
+    [
+      payload.userId,
+      payload.lastProactiveAt,
+      payload.dailyCount,
+      payload.dailyCountDate,
+      payload.updatedAt
+    ]
+  );
+}
+
+export async function saveProactiveMessage(env: Env, params: {
+  id?: string;
+  userId: string;
+  content: string;
+  triggerContext?: string | null;
+  status?: ProactiveMessageStatus;
+  notificationChannel?: 'email' | 'wechat_work' | 'none' | null;
+  notificationSent?: boolean;
+  notificationError?: string | null;
+  createdAt?: number;
+  deliveredAt?: number | null;
+  expiresAt: number;
+}): Promise<ProactiveMessageRecord | null> {
+  await ensureProactiveTables(env);
+
+  const userId = String(params.userId || '').trim();
+  const content = String(params.content || '').trim();
+  if (!userId || !content) return null;
+
+  const id = String(params.id || randomUUID()).trim();
+  const statusRaw = String(params.status || 'pending').trim().toLowerCase();
+  const status: ProactiveMessageStatus = statusRaw === 'delivered' || statusRaw === 'expired' ? statusRaw : 'pending';
+  const channelRaw = String(params.notificationChannel || '').trim().toLowerCase();
+  const notificationChannel =
+    channelRaw === 'email' || channelRaw === 'wechat_work' || channelRaw === 'none'
+      ? (channelRaw as 'email' | 'wechat_work' | 'none')
+      : null;
+  const createdAt = Number.isFinite(Number(params.createdAt)) ? Number(params.createdAt) : Date.now();
+  const deliveredAt = Number.isFinite(Number(params.deliveredAt)) ? Number(params.deliveredAt) : null;
+  const expiresAt = Number.isFinite(Number(params.expiresAt))
+    ? Math.max(createdAt, Number(params.expiresAt))
+    : createdAt + 72 * 3600000;
+  const triggerContext = typeof params.triggerContext === 'string' ? params.triggerContext : null;
+  const notificationError = typeof params.notificationError === 'string'
+    ? params.notificationError.slice(0, 500)
+    : null;
+  const notificationSent = Boolean(params.notificationSent);
+
+  const result = await env.db.query(
+    `INSERT INTO proactive_messages
+      (id, user_id, content, trigger_context, status, notification_channel, notification_sent, notification_error, created_at, delivered_at, expires_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     ON CONFLICT (id) DO UPDATE SET
+       content = EXCLUDED.content,
+       trigger_context = EXCLUDED.trigger_context,
+       status = EXCLUDED.status,
+       notification_channel = EXCLUDED.notification_channel,
+       notification_sent = EXCLUDED.notification_sent,
+       notification_error = EXCLUDED.notification_error,
+       delivered_at = EXCLUDED.delivered_at,
+       expires_at = EXCLUDED.expires_at
+     RETURNING id,
+               user_id as "userId",
+               content,
+               trigger_context as "triggerContext",
+               status,
+               notification_channel as "notificationChannel",
+               notification_sent as "notificationSent",
+               notification_error as "notificationError",
+               created_at as "createdAt",
+               delivered_at as "deliveredAt",
+               expires_at as "expiresAt"`,
+    [
+      id,
+      userId,
+      content,
+      triggerContext,
+      status,
+      notificationChannel,
+      notificationSent,
+      notificationError,
+      createdAt,
+      deliveredAt,
+      expiresAt
+    ]
+  );
+
+  const row = result.rows?.[0] as any;
+  if (!row) return null;
+  return mapProactiveMessageRow(row);
+}
+
+export async function fetchPendingProactiveMessages(env: Env, params: {
+  userId: string;
+  limit?: number;
+}): Promise<ProactiveMessageRecord[]> {
+  await ensureProactiveTables(env);
+  const userId = String(params.userId || '').trim();
+  if (!userId) return [];
+  const limit = Math.min(Math.max(Math.trunc(Number(params.limit || 20)), 1), 200);
+  const now = Date.now();
+
+  await env.db.query(
+    `UPDATE proactive_messages
+        SET status = 'expired'
+      WHERE user_id = $1
+        AND status = 'pending'
+        AND expires_at <= $2`,
+    [userId, now]
+  );
+
+  const result = await env.db.query(
+    `SELECT id,
+            user_id as "userId",
+            content,
+            trigger_context as "triggerContext",
+            status,
+            notification_channel as "notificationChannel",
+            notification_sent as "notificationSent",
+            notification_error as "notificationError",
+            created_at as "createdAt",
+            delivered_at as "deliveredAt",
+            expires_at as "expiresAt"
+       FROM proactive_messages
+      WHERE user_id = $1
+        AND status = 'pending'
+        AND expires_at > $2
+      ORDER BY created_at ASC
+      LIMIT $3`,
+    [userId, now, limit]
+  );
+
+  return (result.rows || []).map(mapProactiveMessageRow);
+}
+
+export async function markProactiveMessagesDelivered(env: Env, params: {
+  userId: string;
+  ids: string[];
+  deliveredAt?: number;
+}) {
+  await ensureProactiveTables(env);
+  const userId = String(params.userId || '').trim();
+  const ids = Array.isArray(params.ids) ? params.ids.map((id) => String(id || '').trim()).filter(Boolean) : [];
+  if (!userId || !ids.length) return 0;
+  const deliveredAt = Number.isFinite(Number(params.deliveredAt)) ? Number(params.deliveredAt) : Date.now();
+
+  const result = await env.db.query(
+    `UPDATE proactive_messages
+        SET status = 'delivered',
+            delivered_at = $3
+      WHERE user_id = $1
+        AND id = ANY($2::text[])
+        AND status = 'pending'`,
+    [userId, ids, deliveredAt]
+  );
+  return Number(result.rowCount || 0);
+}
+
+function mapProactiveMessageRow(row: any): ProactiveMessageRecord {
+  const rawStatus = String(row?.status || '').trim().toLowerCase();
+  const status: ProactiveMessageStatus = rawStatus === 'delivered' || rawStatus === 'expired' ? rawStatus : 'pending';
+  const channelRaw = String(row?.notificationChannel || '').trim().toLowerCase();
+  const notificationChannel =
+    channelRaw === 'email' || channelRaw === 'wechat_work' || channelRaw === 'none'
+      ? (channelRaw as 'email' | 'wechat_work' | 'none')
+      : null;
+  return {
+    id: String(row?.id || ''),
+    userId: String(row?.userId || ''),
+    content: String(row?.content || ''),
+    triggerContext: typeof row?.triggerContext === 'string' ? row.triggerContext : null,
+    status,
+    notificationChannel,
+    notificationSent: Boolean(row?.notificationSent),
+    notificationError: typeof row?.notificationError === 'string' ? row.notificationError : null,
+    createdAt: Number(row?.createdAt || 0),
+    deliveredAt: Number.isFinite(Number(row?.deliveredAt)) ? Number(row.deliveredAt) : null,
+    expiresAt: Number(row?.expiresAt || 0)
+  };
+}
+
 function parseJson(value: any) {
   if (!value) return [];
   try {
@@ -801,8 +1162,17 @@ export async function deleteDiaryEntriesByUser(env: Env, userId: string) {
 
 export async function deleteConversationLogsByUser(env: Env, userId: string) {
   await ensureConversationTables(env);
+  await ensureProactiveTables(env);
   await env.db.query(
     `DELETE FROM conversation_log_tombstones WHERE user_id = $1`,
+    [userId]
+  );
+  await env.db.query(
+    `DELETE FROM proactive_messages WHERE user_id = $1`,
+    [userId]
+  );
+  await env.db.query(
+    `DELETE FROM proactive_user_state WHERE user_id = $1`,
     [userId]
   );
   const result = await env.db.query(

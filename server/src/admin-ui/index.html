@@ -219,14 +219,108 @@
             </div>
           </div>
 
-	          <div class="row">
-	            <div class="col">
-	              <div class="field">
-	                <label for="profileTemperature">档案 Temperature</label>
-	                <input id="profileTemperature" placeholder="0.2" />
-	              </div>
-	            </div>
-	          </div>
+		          <div class="row">
+		            <div class="col">
+		              <div class="field">
+		                <label for="profileTemperature">档案 Temperature</label>
+		                <input id="profileTemperature" placeholder="0.2" />
+		              </div>
+		            </div>
+		          </div>
+
+          <div class="divider"></div>
+          <div class="section-title">主动消息（全局）</div>
+
+          <div class="row">
+            <div class="col">
+              <div class="field">
+                <label for="proactiveEnabled">启用主动消息</label>
+                <select id="proactiveEnabled">
+                  <option value="false">关闭</option>
+                  <option value="true">开启</option>
+                </select>
+              </div>
+            </div>
+            <div class="col">
+              <div class="field">
+                <label for="proactiveIntervalMinutes">检查间隔（分钟）</label>
+                <input id="proactiveIntervalMinutes" placeholder="60" />
+              </div>
+            </div>
+            <div class="col">
+              <div class="field">
+                <label for="proactiveTimeZone">时区</label>
+                <input id="proactiveTimeZone" placeholder="Asia/Shanghai" />
+              </div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="col">
+              <div class="field">
+                <label for="proactiveQuietStartHour">安静时段开始（0-23）</label>
+                <input id="proactiveQuietStartHour" placeholder="23" />
+              </div>
+            </div>
+            <div class="col">
+              <div class="field">
+                <label for="proactiveQuietEndHour">安静时段结束（0-23）</label>
+                <input id="proactiveQuietEndHour" placeholder="7" />
+              </div>
+            </div>
+            <div class="col">
+              <div class="field">
+                <label for="proactiveMaxDaily">每日上限</label>
+                <input id="proactiveMaxDaily" placeholder="2" />
+              </div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="col">
+              <div class="field">
+                <label for="proactiveCooldownHours">冷却时间（小时）</label>
+                <input id="proactiveCooldownHours" placeholder="6" />
+              </div>
+            </div>
+            <div class="col">
+              <div class="field">
+                <label for="proactiveIntimacyThreshold">亲密度门槛</label>
+                <input id="proactiveIntimacyThreshold" placeholder="10" />
+              </div>
+            </div>
+            <div class="col">
+              <div class="field">
+                <label for="proactiveRecentActiveMinutes">最近活跃判定（分钟）</label>
+                <input id="proactiveRecentActiveMinutes" placeholder="60" />
+              </div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="col">
+              <div class="field">
+                <label for="proactiveNotificationChannel">通知渠道</label>
+                <select id="proactiveNotificationChannel">
+                  <option value="none">不通知</option>
+                  <option value="email">邮件</option>
+                  <option value="wechat_work">企业微信 Webhook</option>
+                </select>
+              </div>
+            </div>
+            <div class="col">
+              <div class="field">
+                <label for="proactiveNotificationTarget">通知目标</label>
+                <input id="proactiveNotificationTarget" placeholder="邮箱地址 或 企业微信 webhook URL" />
+              </div>
+            </div>
+            <div class="col">
+              <div class="field">
+                <label>&nbsp;</label>
+                <div class="muted small">当渠道为邮件/企业微信时，通知目标必须填写。</div>
+              </div>
+            </div>
+          </div>
 
           <div class="inline mt-18">
             <button id="saveConfigBtn" type="button">保存配置</button>

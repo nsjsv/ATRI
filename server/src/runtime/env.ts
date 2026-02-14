@@ -94,6 +94,8 @@ export function loadEnv(source: NodeJS.ProcessEnv): Env {
     DIARY_API_KEY: readOptionalText(source.DIARY_API_KEY),
     DIARY_API_URL: readOptionalText(source.DIARY_API_URL),
     DIARY_MODEL: readOptionalText(source.DIARY_MODEL),
+    EMAIL_API_KEY: readOptionalText(source.EMAIL_API_KEY),
+    EMAIL_FROM: readOptionalText(source.EMAIL_FROM),
 
     EMBEDDINGS_API_KEY: readText(source.EMBEDDINGS_API_KEY),
     EMBEDDINGS_API_URL: readText(source.EMBEDDINGS_API_URL),

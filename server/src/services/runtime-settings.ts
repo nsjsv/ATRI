@@ -17,6 +17,18 @@ type RuntimeConfigPublic = {
   diaryTemperature?: number;
   diaryMaxTokens?: number;
   profileTemperature?: number;
+
+  proactiveEnabled?: boolean | string | number;
+  proactiveIntervalMinutes?: number;
+  proactiveTimeZone?: string;
+  proactiveQuietStartHour?: number;
+  proactiveQuietEndHour?: number;
+  proactiveMaxDaily?: number;
+  proactiveCooldownHours?: number;
+  proactiveIntimacyThreshold?: number;
+  proactiveRecentActiveMinutes?: number;
+  proactiveNotificationChannel?: string;
+  proactiveNotificationTarget?: string;
 };
 
 type RuntimeConfigSecrets = {
@@ -46,6 +58,18 @@ export type EffectiveRuntimeSettings = {
   diaryTemperature: number;
   diaryMaxTokens: number;
   profileTemperature: number;
+
+  proactiveEnabled: boolean;
+  proactiveIntervalMinutes: number;
+  proactiveTimeZone: string;
+  proactiveQuietStartHour: number;
+  proactiveQuietEndHour: number;
+  proactiveMaxDaily: number;
+  proactiveCooldownHours: number;
+  proactiveIntimacyThreshold: number;
+  proactiveRecentActiveMinutes: number;
+  proactiveNotificationChannel: 'none' | 'email' | 'wechat_work';
+  proactiveNotificationTarget?: string;
 
   prompts: any;
 };
@@ -88,7 +112,17 @@ const DEFAULTS = {
   agentMaxTokens: 4096,
   diaryTemperature: 0.7,
   diaryMaxTokens: 4096,
-  profileTemperature: 0.2
+  profileTemperature: 0.2,
+  proactiveEnabled: false,
+  proactiveIntervalMinutes: 60,
+  proactiveTimeZone: 'Asia/Shanghai',
+  proactiveQuietStartHour: 23,
+  proactiveQuietEndHour: 7,
+  proactiveMaxDaily: 2,
+  proactiveCooldownHours: 6,
+  proactiveIntimacyThreshold: 10,
+  proactiveRecentActiveMinutes: 60,
+  proactiveNotificationChannel: 'none' as const
 };
 
 const RUNTIME_CONFIG_KEYS: Array<keyof RuntimeConfigPublic> = [
@@ -104,7 +138,18 @@ const RUNTIME_CONFIG_KEYS: Array<keyof RuntimeConfigPublic> = [
   'agentMaxTokens',
   'diaryTemperature',
   'diaryMaxTokens',
-  'profileTemperature'
+  'profileTemperature',
+  'proactiveEnabled',
+  'proactiveIntervalMinutes',
+  'proactiveTimeZone',
+  'proactiveQuietStartHour',
+  'proactiveQuietEndHour',
+  'proactiveMaxDaily',
+  'proactiveCooldownHours',
+  'proactiveIntimacyThreshold',
+  'proactiveRecentActiveMinutes',
+  'proactiveNotificationChannel',
+  'proactiveNotificationTarget'
 ];
 
 function normalizeApiFormat(value: unknown): 'openai' | 'anthropic' | 'gemini' | null {
@@ -128,6 +173,67 @@ function normalizeOptionalNumber(value: unknown): number | undefined {
     if (Number.isFinite(n)) return n;
   }
   return undefined;
+}
+
+function normalizeOptionalBoolean(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return undefined;
+  }
+  if (typeof value === 'string') {
+    const text = value.trim().toLowerCase();
+    if (!text) return undefined;
+    if (['1', 'true', 'yes', 'y', 'on'].includes(text)) return true;
+    if (['0', 'false', 'no', 'n', 'off'].includes(text)) return false;
+  }
+  return undefined;
+}
+
+function normalizeProactiveChannel(value: unknown): 'none' | 'email' | 'wechat_work' | undefined {
+  const text = String(value ?? '').trim().toLowerCase();
+  if (!text) return undefined;
+  if (text === 'email') return 'email';
+  if (text === 'wechat_work') return 'wechat_work';
+  if (text === 'none') return 'none';
+  return undefined;
+}
+
+function normalizeTimeZone(value: unknown, fallback: string): string {
+  const text = String(value ?? '').trim();
+  if (!text) return fallback;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: text }).format(new Date());
+    return text;
+  } catch {
+    return fallback;
+  }
+}
+
+function validateProactiveConfig(config: RuntimeConfigPublic) {
+  const channel = normalizeProactiveChannel(config.proactiveNotificationChannel) || 'none';
+  const target = normalizeOptionalText(config.proactiveNotificationTarget);
+  if ((channel === 'email' || channel === 'wechat_work') && !target) {
+    throw new Error('proactive_target_required');
+  }
+  if (channel === 'email' && target) {
+    const isEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(target);
+    if (!isEmail) {
+      throw new Error('proactive_email_target_invalid');
+    }
+  }
+  if (channel === 'wechat_work' && target) {
+    let url: URL;
+    try {
+      url = new URL(target);
+    } catch {
+      throw new Error('proactive_wechat_target_invalid');
+    }
+    if (url.protocol !== 'https:' || url.hostname.toLowerCase() !== 'qyapi.weixin.qq.com') {
+      throw new Error('proactive_wechat_target_invalid');
+    }
+  }
 }
 
 function clampNumber(value: number, min: number, max: number) {
@@ -283,7 +389,7 @@ function mergePrompts(base: any, override: any | null) {
   if (!override || typeof override !== 'object') return base;
   const merged = JSON.parse(JSON.stringify(base));
 
-  for (const key of ['agent', 'diary', 'profile']) {
+  for (const key of ['agent', 'diary', 'profile', 'proactive']) {
     const src = (override as any)[key];
     if (!src || typeof src !== 'object') continue;
     merged[key] = merged[key] && typeof merged[key] === 'object' ? merged[key] : {};
@@ -348,6 +454,61 @@ function resolveEffectiveSettings(
     2
   );
 
+  const proactiveEnabled = normalizeOptionalBoolean(c.proactiveEnabled) ?? DEFAULTS.proactiveEnabled;
+  const proactiveIntervalMinutes = Math.trunc(
+    clampNumber(
+      normalizeOptionalNumber(c.proactiveIntervalMinutes) ?? DEFAULTS.proactiveIntervalMinutes,
+      5,
+      720
+    )
+  );
+  const proactiveTimeZone = normalizeTimeZone(c.proactiveTimeZone, DEFAULTS.proactiveTimeZone);
+  const proactiveQuietStartHour = Math.trunc(
+    clampNumber(
+      normalizeOptionalNumber(c.proactiveQuietStartHour) ?? DEFAULTS.proactiveQuietStartHour,
+      0,
+      23
+    )
+  );
+  const proactiveQuietEndHour = Math.trunc(
+    clampNumber(
+      normalizeOptionalNumber(c.proactiveQuietEndHour) ?? DEFAULTS.proactiveQuietEndHour,
+      0,
+      23
+    )
+  );
+  const proactiveMaxDaily = Math.trunc(
+    clampNumber(
+      normalizeOptionalNumber(c.proactiveMaxDaily) ?? DEFAULTS.proactiveMaxDaily,
+      0,
+      20
+    )
+  );
+  const proactiveCooldownHours = Math.trunc(
+    clampNumber(
+      normalizeOptionalNumber(c.proactiveCooldownHours) ?? DEFAULTS.proactiveCooldownHours,
+      0,
+      168
+    )
+  );
+  const proactiveIntimacyThreshold = Math.trunc(
+    clampNumber(
+      normalizeOptionalNumber(c.proactiveIntimacyThreshold) ?? DEFAULTS.proactiveIntimacyThreshold,
+      -100,
+      100
+    )
+  );
+  const proactiveRecentActiveMinutes = Math.trunc(
+    clampNumber(
+      normalizeOptionalNumber(c.proactiveRecentActiveMinutes) ?? DEFAULTS.proactiveRecentActiveMinutes,
+      1,
+      1440
+    )
+  );
+  const proactiveNotificationChannel =
+    normalizeProactiveChannel(c.proactiveNotificationChannel) ?? DEFAULTS.proactiveNotificationChannel;
+  const proactiveNotificationTarget = normalizeOptionalText(c.proactiveNotificationTarget);
+
   const prompts = mergePrompts(defaultPrompts as any, promptsOverride);
 
   return {
@@ -369,6 +530,17 @@ function resolveEffectiveSettings(
     diaryTemperature,
     diaryMaxTokens,
     profileTemperature,
+    proactiveEnabled,
+    proactiveIntervalMinutes,
+    proactiveTimeZone,
+    proactiveQuietStartHour,
+    proactiveQuietEndHour,
+    proactiveMaxDaily,
+    proactiveCooldownHours,
+    proactiveIntimacyThreshold,
+    proactiveRecentActiveMinutes,
+    proactiveNotificationChannel,
+    proactiveNotificationTarget,
     prompts
   };
 }
@@ -529,6 +701,10 @@ export async function updateRuntimeConfig(
       (mergedConfig as any)[keyName] = raw;
       continue;
     }
+    if (typeof raw === 'boolean') {
+      (mergedConfig as any)[keyName] = raw;
+      continue;
+    }
   }
 
   const mergedSecrets: RuntimeConfigSecrets = { ...existingSecrets };
@@ -554,6 +730,8 @@ export async function updateRuntimeConfig(
       }
     }
   }
+
+  validateProactiveConfig(mergedConfig);
 
   const now = Date.now();
   const configJson = JSON.stringify(mergedConfig);
@@ -607,6 +785,11 @@ function normalizePromptsForSave(input: any) {
     }
     out[group] = out[group] || {};
     out[group][key] = text;
+  }
+
+  const proactiveSystem = input?.proactive?.system;
+  if (typeof proactiveSystem === 'string' && proactiveSystem.trim()) {
+    out.proactive = { system: proactiveSystem };
   }
   return out;
 }

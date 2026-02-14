@@ -16,6 +16,8 @@ export interface Env {
   DIARY_API_KEY?: string;
   DIARY_API_URL?: string;
   DIARY_MODEL?: string;
+  EMAIL_API_KEY?: string;
+  EMAIL_FROM?: string;
 
   EMBEDDINGS_API_KEY: string;
   EMBEDDINGS_API_URL: string;

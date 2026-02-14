@@ -8,6 +8,7 @@ import { registerAdminRoutes } from './admin';
 import { registerAdminUiRoutes } from './admin-ui';
 import { registerModelRoutes } from './models';
 import { registerCompatRoutes } from './compat';
+import { registerProactiveRoutes } from './proactive';
 
 export async function registerRoutes(app: FastifyInstance, env: Env) {
   registerMediaRoutes(app, env);
@@ -18,6 +19,7 @@ export async function registerRoutes(app: FastifyInstance, env: Env) {
   registerAdminUiRoutes(app, env);
   registerModelRoutes(app, env);
   registerCompatRoutes(app, env);
+  registerProactiveRoutes(app, env);
 
   app.get('/health', async () => ({ ok: true }));
 }
